@@ -389,6 +389,75 @@ draw_graph(g)
 ### Now, need scores and different traversal methods
 ### For example, instead of directly looping g.neighbors, find the best ordering of g.neighbors, and then use that to loop, example below:
 
+"""
+Ideas:
+    - Problem with current method
+        - District assignment can fail if 
+            - Run out of nodes before run out of districts
+            - Run out of districts before run out of nodes
+        - Although, this should be taken care of in an outter loop
+            of district_filling
+
+    - Depth first traversal
+        - Before calling recursive, try to flip all neighbors of current node. Then call recursion. 
+        
+    - Random traversal
+        - Random decision perform bredth first filling and then go to 
+            neighborlist or to go directly to neighborlist
+        - Use random ordering of neighbor list before recursive call
+        - So the idea here is not that bredth first or depth first 
+            will be observed with high probability, but that with 
+            high probability something in-between these two will be
+            observed
+            
+    - For input block graph
+        - Order neighborlist before recursive calls using first the blocks in the same county ID and then blocks in the next lowest county ID
+        - This is block filling method by county first
+    - For deduplication of graphs
+        - Reorder all districts based on graph node #, where if node #1 has district 10, then this district is renamed to district 1, and so on in an ordered way through the graph node #s. 
+        
+        Reordering Algorithm Example: 
+        
+        Step 1
+            Nodes: 1 2 3 4 5 6 7 8 9 10
+        Districts: 5 5 5 4 4 4 3 3 2 1
+        
+        Step 2
+            Nodes: 1 2 3 4 5 6 7 8 9 10
+        Districts: 1 1 1 4 4 4 3 3 2 5
+        
+        Step 3
+            Nodes: 1 2 3 4 5 6 7 8 9 10
+        Districts: 1 1 1 2 2 2 3 3 4 5
+        
+        - Then a hash of the tuple of the district numbers in the order of the node #s will be unqiue for the purposes of district assignment
+        - Building a dictionary with tuples as keys will contain only unique graphs. 
+            For example, the unique key above is (1 1 1 2 2 2 3 3 4 5)
+    
+    - Scoring function for graphs
+        - What heuristics should be used? How to code these?
+        - Edges of districts can be determined using:
+            - Convex hull method in scipy(?)
+            - Marching cubes in skimage(?)
+            - Can use skewed factor of 2D shape with these edges
+    
+    - With scoring function, then Monte Carlo Search can be performed
+        1. Collect all nodes on edge of each district
+            - This determined by any node that shares an edge with a 
+                node that has a district that is not it's own
+        2. Uniformly randomly choose 1 of these nodes, flip the node 
+            to a uniformly randomly chosen neighboring district and 
+            evaluate the score
+                - If the score is better than the current graph, then 
+                    the new graph because the current state
+                - If the score is worse than the current graph, then 
+                    accept the new graph with probability equal to a 
+                    function of worsening and the temperature of the simulation, such that if the temperature is high, then there's higher probability of accepting a given worsening
+        3. Repeat this until some herustic of convergence, for example
+            not finding a new graph within 1,000 attempts
+    
+"""
+
 #%%
 
 def district_filling_min(g: nx.graph, d: int, n: int, district_pops: dict, target_pop: int):
