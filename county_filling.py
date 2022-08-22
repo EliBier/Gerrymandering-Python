@@ -12,8 +12,10 @@ import numpy as np
 from pathlib import Path
 import networkx as nx
 import pandas as pd
+import matplotlib.pyplot as plt
 
 data_path = Path("data")
+N_DISTRICTS = 13
 
 #%%
 
@@ -47,9 +49,16 @@ with open(data_path / "raw.csv", "r") as file:
 ### Some BlockID is larger than length of list
 df = pd.DataFrame(
     columns=["BlockID", "Latitude", "Longitude", "County", "Voting District", "Census Block", "Population", "Neighbors", "Hubs"],
-    data=raw
+    data=raw,
+    
 )
+df["BlockID"] = df["BlockID"].astype(int)
 df = df.set_index("BlockID")
+df["BlockID"] = df.index.values.astype(int)
+df["Longitude"] = df["Longitude"].values.astype(float)
+df["Latitude"] = df["Latitude"].values.astype(float)
+df["Population"] = df["Population"].values.astype(float)
+df["County"] = df["County"].astype(int)
 
 ### Accessing columns of data:
 ###     df["Latitude"]
@@ -81,9 +90,10 @@ county_centers.sort(key=lambda row: (row[0]))
 county_idx_lookup = {}
 county_centers_dict = {}
 for idx,entry in enumerate(county_centers):
-    county_centers_dict[int(entry[0])] = entry[1:]
+    county_centers_dict[int(entry[0])] = [float(entry[2]), float(entry[1])]
     county_idx_lookup[int(entry[0])] = idx
 
+#%%
 
 """
 This handles importing the county borders2 file. It ignores the first row which contains the headers for the data. It then sorts the data by the CountyID
@@ -114,26 +124,25 @@ for entry in raw_county_borders:
 
 ###### County Weighted Adjacency Matrix ######
 
+# """
+# My best guess at what is beign done in this code is that I am taking the the data from the raw_county_borders list and using it to create a list of which counties share a border
+# this is then saved into the county_borders list in the form [[PrimaryCountyID],[Something, Something]]. I am not certain what this data means and could use more help understanding why these things are being done
+# """
 
-"""
-My best guess at what is beign done in this code is that I am taking the the data from the raw_county_borders list and using it to create a list of which counties share a border
-this is then saved into the county_borders list in the form [[PrimaryCountyID],[Something, Something]]. I am not certain what this data means and could use more help understanding why these things are being done
-"""
+# county_borders = []
+# for county in raw_county_borders:
+#     adjacencies = [int(x) for x in county[1].split(",")]
+#     boundaries = [int(x) for x in county[2].split(",")]
 
-county_borders = []
-for county in raw_county_borders:
-    adjacencies = [int(x) for x in county[1].split(",")]
-    boundaries = [int(x) for x in county[2].split(",")]
+#     combined = []
+#     if len(adjacencies) == len(boundaries):
+#         for i in range(len(adjacencies)):
+#             combined.append([boundaries[i], (int(adjacencies[i] - 37000 + 1) // 2)])
 
-    combined = []
-    if len(adjacencies) == len(boundaries):
-        for i in range(len(adjacencies)):
-            combined.append([boundaries[i], (int(adjacencies[i] - 37000 + 1) // 2)])
+#     else:
+#         print("Error")
 
-    else:
-        print("Error")
-
-    county_borders.append([(int(county[0]) - 37000 + 1) // 2, combined])
+#     county_borders.append([(int(county[0]) - 37000 + 1) // 2, combined])
 
 
 #%%
@@ -171,20 +180,20 @@ The final step is performed outside the loop and it appends the contents of the 
 This should mimic the behaviour of the original mathematica code.
 """
 
-blocks_by_county = []
-temp = []
-previous_county = raw[0][3]
-for row in raw:
-    currentCounty = row[3]
-    if currentCounty == previous_county:
-        temp.append(row)
-    else:
-        blocks_by_county.append(temp)
-        temp = []
-        temp.append(row)
-        previous_county = currentCounty
+# blocks_by_county = []
+# temp = []
+# previous_county = raw[0][3]
+# for row in raw:
+#     currentCounty = row[3]
+#     if currentCounty == previous_county:
+#         temp.append(row)
+#     else:
+#         blocks_by_county.append(temp)
+#         temp = []
+#         temp.append(row)
+#         previous_county = currentCounty
 
-blocks_by_county.append(temp)
+# blocks_by_county.append(temp)
 
 ### With DataFrame, better access pattern should be
 ###     block_idx = np.where(df["County"] == "37001")[0]
@@ -194,12 +203,13 @@ blocks_by_county.append(temp)
 
 #%%
 
+county_pops_dict = {}
 county_pops = np.zeros((len(county_idx_lookup),))
 for county,idx in county_idx_lookup.items():
     block_idx = np.where(df["County"].values == str(county))[0]
     # county_pops[county] = df["Population"].values[block_idx]
     county_pops[idx] = df["Population"].values[block_idx].astype(int).sum()
-
+    county_pops_dict[county] = county_pops[idx] 
 
 #%%
 
@@ -207,7 +217,7 @@ for county,idx in county_idx_lookup.items():
 ###### County First Approach ######
 
 total = county_pops.astype(int).sum()
-tot_pop = [total, round(total / 13)]
+tot_pop = [total, round(total / N_DISTRICTS)]
 
 #%%
 
@@ -215,66 +225,241 @@ tot_pop = [total, round(total / 13)]
 """
 Initializes 13 empty districts to fill with full info for each block for all 13 districts
 """
-districts = []
-for i in range(13):
-    districts.append([])
+districts = [[] for x in range(N_DISTRICTS)]
 
 """
 districtCounties will contain a list of counties that are contained in each district as a number from 1 to 100. Split counties are listed as 100+countyID when partially used. Otherwise counties will just be listed by countyID when the district uses all remaining blocks in the county
 """
-districtCounties = []
-for i in range(13):
-    districtCounties.append([])
-
+districtCounties = [[] for x in range(N_DISTRICTS)]
 """
 Createx a copy of raw and adj_mat that will be used throughout the program
 """
-workingData = raw
-workingAdj = adj_mat
+working_data = raw
+working_adj = adj_mat
 
 """
 Partitions raw into 100 groups, 1 for each county. This is the same as the code that was run to create blocks_by_county in the County Population section so I will reuse that variable. I have set it equal to itself to remind me that this variable was created earlier
 """
-blocks_by_county = blocks_by_county
+# blocks_by_county = blocks_by_county
 
 """
 """
-remainingLong = []
+remaining_long = []
 
 #%%
 
 """
 This code chooses a seed which is currently set as the leftmostblock. This code diverges slightly from the original Mathematica code for language purposes, but it maintains the same functionality. 
-To decide the seed a variable that contains the Longitude and blockID of each block is created and named remainingLong. This list is then sorted in reverse order based on Longitude.
+To decide the seed a variable that contains the Longitude and blockID of each block is created and named remaining_long. This list is then sorted in reverse order based on Longitude.
 """
-remainingLong = []
-[remainingLong.append([(row[2]), int(row[0])]) for row in workingData]
-remainingLong.sort(key=lambda row: (row[0]), reverse=True)
+# remaining_long = []
+# [remaining_long.append([float(row[2]), int(row[0])]) for row in working_data]
+# remaining_long.sort(key=lambda row: (row[0]), reverse=True)
+# remaining_long = np.array(remaining_long)
 
-"""
-I was initially confused what the Mathematica code did to calculate the seed but it seems to be finding the first position in the workingData list that has the values of the first entry in remainingLong. I have replicated this functionality in the following python code
-"""
-search = remainingLong[0]
-for i in range(len(workingData)):
-    if workingData[i][2] == search[0]:
-        seed = i
-        break
-"""
-52524 -> This is the western most block in NC which is used  as a seed. Not sure why seedID prints out 53511. This is the same value as printed in mathematica.  *** This doesn't seem right based on comments ***
-"""
-seedID = workingData[seed][0]
+### This is good patter to know, but if we store redundant data 
+### in df, then access pattern is easier
+# remaining_long = np.hstack(
+#     [df["Longitude"].values.reshape(-1,1),
+#      df.index.values.reshape(-1,1)]
+# ).astype(float)
 
-print(seedID)
+remaining_long = df[["Longitude","BlockID"]]
+remaining_long = remaining_long.sort_values("Longitude",ascending=True)
 
 #%%
 
+"""
+I was initially confused what the Mathematica code did to calculate the seed but it seems to be finding the first position in the working_data list that has the values of the first entry in remaining_long. I have replicated this functionality in the following python code
+"""
+# search = remaining_long[0]
+# for i in range(len(working_data)):
+#     if working_data[i][2] == search[0]:
+#         seed = i
+#         break
+"""
+52524 -> This is the western most block in NC which is used  as a seed. Not sure why seedID prints out 53511. This is the same value as printed in mathematica.  *** This doesn't seem right based on comments ***
+"""
+# seedID = working_data[seed][0]
+
+# print(seedID)
+
+#%%
+
+seed = remaining_long["BlockID"][0]
+seedID = seed
+seed_county = df.loc[seed]["County"]
+print(seedID,seed_county)
+
+#%%
+
+DISTRICT_COLORS = {
+    -1: "k",
+    0: "tab:blue",
+    1: "tab:green",
+    2: "tab:"
+}
+def draw_graph(g):
+    fig = plt.figure(figsize=(20,5))
+    ax = fig.add_subplot(111)
+    colors = []
+    for node in g:
+        colors.append(DISTRICT_COLORS[g.nodes[node]["district"]])
+    nx.draw(g, 
+            pos=county_centers_dict, 
+            ax=ax,
+            node_color=colors)
+    ax.set_aspect('equal')
+    
+
+def init_nc_graph():
+    ### Make county graph
+    g = nx.Graph()
+    for key,value in raw_county_borders_dict.items():
+        for adj in value["adj"]:
+            g.add_edge(key,adj)
+            
+    init_district_attr = {}
+    for node_idx in g:
+        init_district_attr[node_idx] = {}
+        init_district_attr[node_idx]["district"] = -1
+        init_district_attr[node_idx]["population"] = county_pops_dict[node_idx]
+    nx.set_node_attributes(g,init_district_attr)
+    
+    return g
+
+
+#%%
+
+### Make county graph
+g = nx.Graph()
+for key,value in raw_county_borders_dict.items():
+    for adj in value["adj"]:
+        g.add_edge(key,adj)
+        
+init_district_attr = {}
+for node_idx in g:
+    init_district_attr[node_idx] = {}
+    init_district_attr[node_idx]["district"] = -1
+    init_district_attr[node_idx]["population"] = county_pops_dict[node_idx]
+nx.set_node_attributes(g,init_district_attr)
+
+draw_graph(g)
+
+#%%
+
+def district_filling(g: nx.graph, d: int, n: int, district_pops: dict, target_pop: int):
+    """
+    Recursive function using county filling method to 
+    define district. Uses depth first traversal.
+
+    Arguments
+    ---------
+    g: nx.graph
+        Networkx graph 
+    d: int
+        District index
+    n: int
+        Node index
+    district_pops: dict
+        Dictionary holding the current district populations
+    target_pop: int
+        Target population for each district
+    """
+    if g.nodes[n]["district"] != -1:
+        raise Exception("Only input undeclared district")
+    if district_pops[d] > target_pop:
+        return 
+    
+    g.nodes[n]["district"] = d
+    district_pops[d] += g.nodes[n]["population"]
+    
+    for neigh in g.neighbors(n):
+        if g.nodes[neigh]["district"] == -1:
+            district_filling(g,d,neigh,district_pops,target_pop)
+
+
+g = init_nc_graph()
+district_pops = {}
+for d in range(N_DISTRICTS):
+    district_pops[d] = 0
+district_filling(g,0,seed_county,district_pops,tot_pop[1])
+draw_graph(g)
+
+### Now, need scores and different traversal methods
+### For example, instead of directly looping g.neighbors, find the best ordering of g.neighbors, and then use that to loop, example below:
+
+#%%
+
+def district_filling_min(g: nx.graph, d: int, n: int, district_pops: dict, target_pop: int):
+    """
+    Recursive function using county filling method to 
+    define district. Uses depth first traversal.
+
+    Arguments
+    ---------
+    g: nx.graph
+        Networkx graph 
+    d: int
+        District index
+    n: int
+        Node index
+    district_pops: dict
+        Dictionary holding the current district populations
+    target_pop: int
+        Target population for each district
+    """
+    if g.nodes[n]["district"] != -1:
+        raise Exception("Only input undeclared district")
+    if district_pops[d] > target_pop:
+        return 
+    
+    g.nodes[n]["district"] = d
+    district_pops[d] += g.nodes[n]["population"]
+    
+    neigh_list = []
+    neigh_pop_list = []
+    for neigh in g.neighbors(n):
+        if g.nodes[neigh]["district"] == -1:
+            neigh_list.append(neigh)
+            neigh_pop_list.append(
+                g.nodes[neigh]["population"]
+            )
+    sort_idx = np.argsort(neigh_pop_list)
+    neigh_list = [neigh_list[x] for x in sort_idx]
+            
+    for neigh in neigh_list:
+        if g.nodes[neigh]["district"] == -1:
+            district_filling_min(g,d,neigh,district_pops,target_pop)
+
+
+g = init_nc_graph()
+district_pops = {}
+for d in range(N_DISTRICTS):
+    district_pops[d] = 0
+district_filling_min(g,0,seed_county,district_pops,tot_pop[1])
+draw_graph(g)
+
+g = init_nc_graph()
+district_pops = {}
+for d in range(N_DISTRICTS):
+    district_pops[d] = 0
+district_filling_min(g,0,37001,district_pops,tot_pop[1])
+
+for node in g:
+    if g.nodes[node]["district"] == -1:
+        district_filling_min(g,1,node,district_pops,tot_pop[1])
+
+draw_graph(g)
+
+#%%
 
 # District creating do loop
 
 for districtNum in range(12):
 
     # Determine which county the seed is in
-    seedCounty = int(workingData[seed][3])
+    seedCounty = int(working_data[seed][3])
     # Adds the current county as the first county to add with a shared border length of 0 as it is the only option so the length does not matter
     countiesToAdd = [[0, (seedCounty - 37000 + 1) // 2]]
 
