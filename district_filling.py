@@ -83,19 +83,12 @@ for i, blockid in enumerate(df.index):
 ### Accessing rows of info:
 ###     df.loc["5"]
 
-"""""
-This handles importing the lookUp data and saving it as a list 
-""" ""
-lookUp = []
-file = open(data_path / "lookUp.txt")
-for row in file:
-    lookUp.append(int(row.strip()))
 
 #%%
 
-"""
-This handles importing the county centroid file, it ignores the first line which contains the name of the columns and then it sorts the list. It also saves the data in the order CountyID, Latitude, Longitude. Longitude and latitude are flipped from their order in the CSV file.
-"""
+
+### This handles importing the county centroid file, it ignores the first line which contains the name of the columns and then it sorts the list. It also saves the data in the order CountyID, Latitude, Longitude. Longitude and latitude are flipped from their order in the CSV file.
+
 county_centers = []
 with open(data_path / "County_Centroids.csv", "r") as file:
     csvreader = csv.reader(file)
@@ -112,9 +105,9 @@ for idx, entry in enumerate(county_centers):
 
 #%%
 
-"""
-This handles importing the county borders2 file. It ignores the first row which contains the headers for the data. It then sorts the data by the CountyID
-"""
+
+### This handles importing the county borders2 file. It ignores the first row which contains the headers for the data. It then sorts the data by the CountyID
+
 raw_county_borders = []
 with open(data_path / "County_Borders2.csv", "r") as file:
     csvreader = csv.reader(file)
@@ -140,9 +133,9 @@ for entry in raw_county_borders:
 
 #%%
 
-"""
-Creating a matrix that contains all of the adjacencies for each county
-"""
+
+### Creating a matrix that contains all of the adjacencies for each county
+
 n_counties = len(raw_county_borders_dict)
 county_adj = np.zeros((n_counties, n_counties)).astype(int)
 
@@ -402,7 +395,6 @@ district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
-draw_graph(g)
 
 for i in range(N_DISTRICTS):
     for node in g:
@@ -415,8 +407,8 @@ draw_graph(g)
 
 #%%
 ### make block graph
-g = init_nc_block_graph()
-write_graph(g, "block_graph.pickle")
+# g = init_nc_block_graph()
+# write_graph(g, "block_graph.pickle")
 #%%
 """
 This will immediately crash the kernal because there are too many options (possibly because of recursion limit in python)
@@ -431,10 +423,6 @@ Some better optimization possibilites will be looking a some number of closest n
 # district_filling(g, 0, seed_county, district_pops, tot_pop[1], min_neigh_order_fn)
 # draw_graph(g)
 
-#%%
-
-### Now, need scores and different traversal methods
-### For example, instead of directly looping g.neighbors, find the best ordering of g.neighbors, and then use that to loop, example below:
 
 #%%
 
@@ -517,6 +505,9 @@ Ideas:
 What follows is now an old idea. It's much better/general to use a function 
 to sort the neighbor list as an argument to district filling. 
 """
+
+### Now, need scores and different traversal methods
+### For example, instead of directly looping g.neighbors, find the best ordering of g.neighbors, and then use that to loop, example below:
 
 
 def district_filling_min_outdated(
