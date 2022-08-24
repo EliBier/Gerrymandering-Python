@@ -50,6 +50,7 @@ with open(data_path / "raw.csv", "r") as file:
         raw.append(row)
 
 ### Some BlockID is larger than length of list
+### I think this is because of the removal of Donuts within the data. I am unsure whether this would still need to be done using my recursive method run on blocks
 df = pd.DataFrame(
     columns=[
         "BlockID",

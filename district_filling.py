@@ -1,6 +1,6 @@
 #%%
 """
-This is my own work that is partially based on the data files and my own recursive algorithm for filling districts
+This is my own original work based off of the previously created data files from Amy's project and insights from rewriting her code
 """
 
 import scipy.io
@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 
 data_path = Path("data")
 N_DISTRICTS = 13
+
 #%%
 
 """
@@ -80,7 +81,17 @@ for i, blockid in enumerate(df.index):
 
 ### Accessing rows of info:
 ###     df.loc["5"]
+
+"""""
+This handles importing the lookUp data and saving it as a list 
+""" ""
+lookUp = []
+file = open(data_path / "lookUp.txt")
+for row in file:
+    lookUp.append(int(row.strip()))
+
 #%%
+
 """
 This handles importing the county centroid file, it ignores the first line which contains the name of the columns and then it sorts the list. It also saves the data in the order CountyID, Latitude, Longitude. Longitude and latitude are flipped from their order in the CSV file.
 """
@@ -97,6 +108,113 @@ county_centers_dict = {}
 for idx, entry in enumerate(county_centers):
     county_centers_dict[int(entry[0])] = [float(entry[2]), float(entry[1])]
     county_idx_lookup[int(entry[0])] = idx
+
+#%%
+
+"""
+This handles importing the county borders2 file. It ignores the first row which contains the headers for the data. It then sorts the data by the CountyID
+"""
+raw_county_borders = []
+with open(data_path / "County_Borders2.csv", "r") as file:
+    csvreader = csv.reader(file)
+    next(csvreader)
+    for row in csvreader:
+        raw_county_borders.append([row[0], row[1], row[2]])
+
+raw_county_borders.sort(key=lambda row: (row[0]))
+
+raw_county_borders_dict = {}
+for entry in raw_county_borders:
+    county_idx = int(entry[0])
+
+    # adjacencies are county index
+    adjacencies = [int(x) for x in entry[1].split(",")]
+    # boundaries are range [0,110405]
+    boundaries = [int(x) for x in entry[2].split(",")]
+
+    raw_county_borders_dict[county_idx] = {}
+    raw_county_borders_dict[county_idx]["adj"] = adjacencies
+    raw_county_borders_dict[county_idx]["b"] = boundaries
+
+#%%
+
+###### County Weighted Adjacency Matrix ######
+
+# """
+# My best guess at what is being done in this code is that I am taking the the data from the raw_county_borders list and using it to create a list of which counties share a border
+# this is then saved into the county_borders list in the form [[PrimaryCountyID],[Something, Something]]. I am not certain what this data means and could use more help understanding why these things are being done
+# """
+
+# county_borders = []
+# for county in raw_county_borders:
+#     adjacencies = [int(x) for x in county[1].split(",")]
+#     boundaries = [int(x) for x in county[2].split(",")]
+
+#     combined = []
+#     if len(adjacencies) == len(boundaries):
+#         for i in range(len(adjacencies)):
+#             combined.append([boundaries[i], (int(adjacencies[i] - 37000 + 1) // 2)])
+
+#     else:
+#         print("Error")
+
+#     county_borders.append([(int(county[0]) - 37000 + 1) // 2, combined])
+
+
+#%%
+
+"""
+Creating a matrix that contains all of the adjacencies for each county
+"""
+n_counties = len(raw_county_borders_dict)
+county_adj = np.zeros((n_counties, n_counties)).astype(int)
+
+for county, county_info in raw_county_borders_dict.items():
+    county_idx = county_idx_lookup[county]
+    adj_idx = [county_idx_lookup[x] for x in county_info["adj"]]
+    county_adj[county_idx][adj_idx] = county_info["b"]
+
+county_adj = np.array(county_adj)
+county_adj = county_adj.T
+
+### With DataFrame, better access pattern should be
+###     block_idx = np.where(df["County"] == "37001")[0]
+### Remember that block_idx is not the same as BlockID because
+###   there's some issue with current BlockIDs
+###     block_ids = df.index[block_idx]
+
+#%%
+
+county_pops_dict = {}
+county_pops = np.zeros((len(county_idx_lookup),))
+for county, idx in county_idx_lookup.items():
+    block_idx = np.where(df["County"].values == county)[0]
+    # county_pops[county] = df["Population"].values[block_idx]
+    county_pops[idx] = df["Population"].values[block_idx].astype(int).sum()
+    county_pops_dict[county] = county_pops[idx]
+
+#%%
+
+
+### Calculate the sum of the population of the counties and then calculate the number of people that should be in each district
+
+total = county_pops.astype(int).sum()
+tot_pop = [total, round(total / N_DISTRICTS)]
+
+
+#%%
+
+### This is good pattern to know, but if we store redundant data
+### in df, then access pattern is easier
+# remaining_long = np.hstack(
+#     [df["Longitude"].values.reshape(-1,1),
+#      df.index.values.reshape(-1,1)]
+# ).astype(float)
+
+remaining_long = df[["Longitude", "BlockID"]]
+remaining_long = remaining_long.sort_values("Longitude", ascending=True)
+
+
 #%%
 
 seed = remaining_long["BlockID"].values[0]
@@ -104,7 +222,6 @@ seedID = seed
 seed_county = df.loc[seed]["County"]
 print(seedID, seed_county)
 
-#%%
 #%%
 
 DISTRICT_COLORS = {-1: "k", 0: "tab:blue", 1: "tab:green", 2: "tab:"}
@@ -138,6 +255,7 @@ def init_nc_graph():
 
 
 def init_nc_block_graph():
+    ### Make block based graph
     g = nx.from_scipy_sparse_matrix(adj_mat)
     init_district_attr = {}
     for node_idx in g:
@@ -207,6 +325,7 @@ def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
 
 
 def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+    ### Orders the neighboring nodes from minimum to maximum
     nlist = []
     plist = []
     for neigh in neigh_iter:
@@ -217,6 +336,7 @@ def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
 
 
 def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+    ### Orders the neighboring nodes from maximum to minimum
     nlist = []
     plist = []
     for neigh in neigh_iter:
@@ -408,5 +528,4 @@ for node in g:
         district_filling_min(g, 1, node, district_pops, tot_pop[1])
 
 draw_graph(g)
-
-#%%
+# %%
