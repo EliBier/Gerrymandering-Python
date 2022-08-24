@@ -48,6 +48,7 @@ with open(data_path / "raw.csv", "r") as file:
         raw.append(row)
 
 ### Some BlockID is larger than length of list
+### This is likely because of the some of the blocks were combined due to donuts being formed
 df = pd.DataFrame(
     columns=[
         "BlockID",
@@ -136,30 +137,6 @@ for entry in raw_county_borders:
     raw_county_borders_dict[county_idx]["adj"] = adjacencies
     raw_county_borders_dict[county_idx]["b"] = boundaries
 
-#%%
-
-###### County Weighted Adjacency Matrix ######
-
-# """
-# My best guess at what is being done in this code is that I am taking the the data from the raw_county_borders list and using it to create a list of which counties share a border
-# this is then saved into the county_borders list in the form [[PrimaryCountyID],[Something, Something]]. I am not certain what this data means and could use more help understanding why these things are being done
-# """
-
-# county_borders = []
-# for county in raw_county_borders:
-#     adjacencies = [int(x) for x in county[1].split(",")]
-#     boundaries = [int(x) for x in county[2].split(",")]
-
-#     combined = []
-#     if len(adjacencies) == len(boundaries):
-#         for i in range(len(adjacencies)):
-#             combined.append([boundaries[i], (int(adjacencies[i] - 37000 + 1) // 2)])
-
-#     else:
-#         print("Error")
-
-#     county_borders.append([(int(county[0]) - 37000 + 1) // 2, combined])
-
 
 #%%
 
@@ -237,6 +214,12 @@ def draw_graph(g):
     ax.set_aspect("equal")
 
 
+"""
+Add latitude and longitude as a node property so that I don't need to refer back to dataframe
+Add political affiliation as a node property when the time comes
+"""
+
+
 def init_nc_graph():
     ### Make county graph
     g = nx.Graph()
@@ -249,6 +232,8 @@ def init_nc_graph():
         init_district_attr[node_idx] = {}
         init_district_attr[node_idx]["district"] = -1
         init_district_attr[node_idx]["population"] = county_pops_dict[node_idx]
+        init_district_attr[node_idx]["latitude"] = county_centers_dict[node_idx][0]
+        init_district_attr[node_idx]["longitude"] = county_centers_dict[node_idx][1]
     nx.set_node_attributes(g, init_district_attr)
 
     return g
@@ -264,6 +249,8 @@ def init_nc_block_graph():
         init_district_attr[node_idx]["district"] = -1
         init_district_attr[node_idx]["population"] = df.loc[blockid]["Population"]
         init_district_attr[node_idx]["county"] = df.loc[blockid]["County"]
+        init_district_attr[node_idx]["latitude"] = df.loc[blockid]["Latitude"]
+        init_district_attr[node_idx]["longitude"] = df.loc[blockid]["Longitude"]
     nx.set_node_attributes(g, init_district_attr)
 
     return g
@@ -307,6 +294,8 @@ def district_filling(
         the graph and iterator from g.neighbors(n).
 
     """
+    # This doesn't work for bredth first search
+    # Needs to fixed so neighbors
     if g.nodes[n]["district"] != -1:
         raise Exception("Only input undeclared district")
     if district_pops[d] > target_pop:
@@ -344,6 +333,12 @@ def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
         plist.append(g.nodes[neigh]["population"])
     sort_idx = np.argsort(plist)[::-1]
     return [nlist[x] for x in sort_idx]
+
+
+def draw_block_graph(g: nx.graph):
+    ax = plt.axes()
+    for i in range(N_DISTRICTS):
+        g.nodes
 
 
 #%%
@@ -385,6 +380,24 @@ draw_graph(g)
 
 
 #%%
+### make block graph
+g = init_nc_block_graph()
+write_graph(g, "block_graph.pickle")
+#%%
+"""
+This will immediately crash the kernal because there are too many options (possibly because of recursion limit in python)
+Before I run using the block graph I will need to create significant optimizations. I do not believe that only looking at the same county at the same time will be enough.
+Some better optimization possibilites will be looking a some number of closest nodes within the same county, but the exact optimizations can be determined later.
+"""
+### block default neigh ordering
+# g = read_graph("block_graph.pickle")
+# district_pops = {}
+# for d in range(N_DISTRICTS):
+#     district_pops[d] = 0
+# district_filling(g, 0, seed_county, district_pops, tot_pop[1], min_neigh_order_fn)
+# draw_graph(g)
+
+#%%
 
 ### Now, need scores and different traversal methods
 ### For example, instead of directly looping g.neighbors, find the best ordering of g.neighbors, and then use that to loop, example below:
@@ -393,6 +406,10 @@ draw_graph(g)
 
 """
 Ideas:
+    - Might want to create a better draw method so that I can draw the block graph without it being a mess
+        - scipy.spatial.convexhull based on latitude longitude (?)
+            - Doesn't work well and doesn't create a good representation
+
     - Problem with current method
         - District assignment can fail if 
             - Run out of nodes before run out of districts
