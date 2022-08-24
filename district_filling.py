@@ -232,7 +232,6 @@ def draw_graph(g):
 
 
 """
-Add latitude and longitude as a node property so that I don't need to refer back to dataframe
 Add political affiliation as a node property when the time comes
 """
 
