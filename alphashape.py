@@ -19,11 +19,9 @@ def alphashape(pos, alpha=1):
     x23 improvement. It has yet to be tested if this efficiency improvement
     carriers over to larger datasets. The improvement should be even greater,
     hopefully reducing alpha-shape computing times from minutes to seconds.
-    
+
     For the block graph, this function takes 4.39 s. The PyPI library takes
-    67 seconds. This represents a speed up of x15.26. Scaling turns out to not 
-    be as good for significantly larger plots, but the speedup is still 
-    enormous. 
+    67 seconds. This represents a speed up of x15.26.
 
     """
     ### Edges in Delaunay shape are guaranteed to be superset of those
@@ -101,7 +99,15 @@ def alphashape(pos, alpha=1):
     return points, edges
 
 
-def plot_alphashape(pos, points, edges, plot_pos=False, plt_kw={"color": "k"}, scatter_kw={"color": "k"}, pos_kw={"color":"tab:blue"}):
+def plot_alphashape(
+    pos,
+    points,
+    edges,
+    plot_pos=False,
+    plt_kw={"color": "k"},
+    scatter_kw={"color": "k"},
+    pos_kw={"color": "tab:blue"},
+):
     fig = plt.figure(figsize=(20, 5))
     ax = fig.add_subplot(111)
     plot_points = pos[points]
@@ -116,17 +122,19 @@ def plot_alphashape(pos, points, edges, plot_pos=False, plt_kw={"color": "k"}, s
 
 def get_pos(g):
     return np.vstack(
-        [[g.nodes[x]["latitude"],g.nodes[x]["longitude"]] for x in g.nodes]
+        [[g.nodes[x]["latitude"], g.nodes[x]["longitude"]] for x in g.nodes]
     )
+
 
 # %%
 
 if __name__ == "__main__":
     import pickle5
-    with open("county_graph.pickle",'rb') as pickle_file:
+
+    with open("county_graph.pickle", "rb") as pickle_file:
         g = pickle5.load(pickle_file)
     pos = get_pos(g)
-    points,edges = alphashape(pos,alpha=1)
-    plot_alphashape(pos,points,edges,plot_pos=True)
-    
+    points, edges = alphashape(pos, alpha=1)
+    plot_alphashape(pos, points, edges, plot_pos=True)
+
 # %%
