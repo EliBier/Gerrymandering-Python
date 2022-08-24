@@ -200,22 +200,22 @@ seed_county = df.loc[seed]["County"]
 print(seedID, seed_county)
 
 #%%
-# Colors need to be changed at some point
+# Colors need to be decided at some point
 DISTRICT_COLORS = {
     -1: "k",
-    0: "tab:red",
-    1: "green",
-    2: "yellow",
-    3: "blue",
-    4: "orange",
-    5: "purple",
-    6: "cyan",
-    7: "magenta",
-    8: "lime",
-    9: "pink",
-    10: "teal",
-    11: "lavender",
-    12: "brown",
+    0: "tab:blue",
+    1: "tab:orange",
+    2: "tab:green",
+    3: "tab:red",
+    4: "tab:purple",
+    5: "tab:brown",
+    6: "tab:pink",
+    7: "tab:gray",
+    8: "tab:olive",
+    9: "tab:cyan",
+    10: "yellow",
+    11: "magenta",
+    12: "aquamarine",
     13: "beige",
     14: "maroon",
 }
