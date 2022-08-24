@@ -19,6 +19,11 @@ def alphashape(pos, alpha=1):
     x23 improvement. It has yet to be tested if this efficiency improvement
     carriers over to larger datasets. The improvement should be even greater,
     hopefully reducing alpha-shape computing times from minutes to seconds.
+    
+    For the block graph, this function takes 4.39 s. The PyPI library takes
+    67 seconds. This represents a speed up of x15.26. Scaling turns out to not 
+    be as good for significantly larger plots, but the speedup is still 
+    enormous. 
 
     """
     ### Edges in Delaunay shape are guaranteed to be superset of those
