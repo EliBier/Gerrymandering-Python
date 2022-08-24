@@ -200,8 +200,25 @@ seed_county = df.loc[seed]["County"]
 print(seedID, seed_county)
 
 #%%
-
-DISTRICT_COLORS = {-1: "k", 0: "tab:blue", 1: "tab:green", 2: "tab:"}
+# Colors need to be changed at some point
+DISTRICT_COLORS = {
+    -1: "k",
+    0: "tab:red",
+    1: "green",
+    2: "yellow",
+    3: "blue",
+    4: "orange",
+    5: "purple",
+    6: "cyan",
+    7: "magenta",
+    8: "lime",
+    9: "pink",
+    10: "teal",
+    11: "lavender",
+    12: "brown",
+    13: "beige",
+    14: "maroon",
+}
 
 
 def draw_graph(g):
@@ -274,8 +291,7 @@ def district_filling(
     neigh_order_fn: Callable,
 ):
     """
-    Recursive function using county filling method to define district. Uses
-    depth first traversal.
+    Recursive function using county filling method to define district.
 
     Arguments
     ---------
@@ -294,7 +310,7 @@ def district_filling(
         the graph and iterator from g.neighbors(n).
 
     """
-    # This doesn't work for bredth first search
+    # This doesn't work for breadth first search
     # Needs to fixed so neighbors
     if g.nodes[n]["district"] != -1:
         raise Exception("Only input undeclared district")
@@ -358,6 +374,7 @@ for d in range(N_DISTRICTS):
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
 draw_graph(g)
 
+
 #%%
 
 ### min neigh ordering
@@ -370,12 +387,30 @@ draw_graph(g)
 
 #%%
 
-### min neigh ordering
+### max neigh ordering
 g = read_graph("county_graph.pickle")
 district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
+draw_graph(g)
+
+#%%
+
+### Multiple district example using default neigh ordering
+g = read_graph("county_graph.pickle")
+district_pops = {}
+for d in range(N_DISTRICTS):
+    district_pops[d] = 0
+district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
+draw_graph(g)
+
+for i in range(N_DISTRICTS):
+    for node in g:
+        if g.nodes[node]["district"] == -1:
+            district_filling(
+                g, i + 1, node, district_pops, tot_pop[1], default_neigh_order_fn
+            )
 draw_graph(g)
 
 
@@ -387,7 +422,7 @@ write_graph(g, "block_graph.pickle")
 """
 This will immediately crash the kernal because there are too many options (possibly because of recursion limit in python)
 Before I run using the block graph I will need to create significant optimizations. I do not believe that only looking at the same county at the same time will be enough.
-Some better optimization possibilites will be looking a some number of closest nodes within the same county, but the exact optimizations can be determined later.
+Some better optimization possibilites will be looking a some number of closest nodes within the same county, but the exact optimizations can be determined.
 """
 ### block default neigh ordering
 # g = read_graph("block_graph.pickle")
@@ -485,7 +520,7 @@ to sort the neighbor list as an argument to district filling.
 """
 
 
-def district_filling_min(
+def district_filling_min_outdated(
     g: nx.graph, d: int, n: int, district_pops: dict, target_pop: int
 ):
     """
@@ -524,25 +559,25 @@ def district_filling_min(
 
     for neigh in neigh_list:
         if g.nodes[neigh]["district"] == -1:
-            district_filling_min(g, d, neigh, district_pops, target_pop)
+            district_filling_min_outdated(g, d, neigh, district_pops, target_pop)
 
 
 g = init_nc_graph()
 district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
-district_filling_min(g, 0, seed_county, district_pops, tot_pop[1])
+district_filling_min_outdated(g, 0, seed_county, district_pops, tot_pop[1])
 draw_graph(g)
 
 g = init_nc_graph()
 district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
-district_filling_min(g, 0, 37001, district_pops, tot_pop[1])
+district_filling_min_outdated(g, 0, 37001, district_pops, tot_pop[1])
 
 for node in g:
     if g.nodes[node]["district"] == -1:
-        district_filling_min(g, 1, node, district_pops, tot_pop[1])
+        district_filling_min_outdated(g, 1, node, district_pops, tot_pop[1])
 
 draw_graph(g)
 # %%
