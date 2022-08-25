@@ -27,7 +27,6 @@ def alphashape(pos, alpha=1):
     ### Edges in Delaunay shape are guaranteed to be superset of those
     ### in alpha shape
     tri = Delaunay(pos)
-    alpha = 2
     all_tri = pos[tri.vertices]
 
     ### The edges that can be in alphashape are those where the circumradius
@@ -99,17 +98,50 @@ def alphashape(pos, alpha=1):
     return points, edges
 
 
+def get_graph_point_clouds(g, pos, attribute="county"):
+    point_clouds_idx = {}
+    for idx, node in enumerate(g.nodes):
+        temp_attr = g.nodes[node][attribute]
+        if temp_attr not in point_clouds_idx:
+            point_clouds_idx[temp_attr] = []
+        point_clouds_idx[temp_attr].append(idx)
+    point_clouds = {}
+    for key, idx in point_clouds_idx.items():
+        point_clouds[key] = pos[idx]
+    return point_clouds, point_clouds_idx
+
+
+def get_graph_alphashapes(
+    g,
+    pos,
+    attribute="county",
+    alpha=1,
+):
+    point_clouds, _ = get_graph_point_clouds(g, pos)
+    pos_dict = {}
+    points_dict = {}
+    edges_dict = {}
+    for key, temp_pos in point_clouds.items():
+        alpha_points, alpha_edges = alphashape(temp_pos, alpha)
+        pos_dict[key] = temp_pos
+        points_dict[key] = alpha_points
+        edges_dict[key] = alpha_edges
+    return pos_dict, points_dict, edges_dict
+
+
 def plot_alphashape(
     pos,
     points,
     edges,
+    ax=None,
     plot_pos=False,
     plt_kw={"color": "k"},
     scatter_kw={"color": "k"},
     pos_kw={"color": "tab:blue"},
 ):
-    fig = plt.figure(figsize=(20, 5))
-    ax = fig.add_subplot(111)
+    if ax == None:
+        fig = plt.figure(figsize=(20, 5))
+        ax = fig.add_subplot(111)
     plot_points = pos[points]
     plot_edges = pos[edges]
     if plot_pos:
@@ -117,7 +149,37 @@ def plot_alphashape(
     ax.scatter(plot_points[:, 0], plot_points[:, 1], **plt_kw)
     ax.plot(plot_edges[:, 0], plot_edges[:, 1], **scatter_kw)
     ax.set_aspect("equal")
-    plt.show()
+
+    return ax
+
+
+def plot_point_cloud_alphashape(
+    pos_dict,
+    points_dict,
+    edges_dict,
+    ax=None,
+    plot_pos=False,
+    plt_kw={"color": "k"},
+    scatter_kw={"color": "k"},
+    pos_kw={"color": "tab:blue"},
+):
+    if ax == None:
+        fig = plt.figure(figsize=(20, 5))
+        ax = fig.add_subplot(111)
+
+    for key in points_dict:
+        plot_alphashape(
+            pos_dict[key],
+            points_dict[key],
+            edges_dict[key],
+            ax=ax,
+            plot_pos=plot_pos,
+            plt_kw=plt_kw,
+            scatter_kw=scatter_kw,
+            pos_kw=pos_kw,
+        )
+
+    return ax
 
 
 def get_pos(g):
@@ -131,10 +193,20 @@ def get_pos(g):
 if __name__ == "__main__":
     import pickle5
 
+    ### Plotting simple outline of state from county centers using alpha-shape
     with open("county_graph.pickle", "rb") as pickle_file:
         g = pickle5.load(pickle_file)
     pos = get_pos(g)
     points, edges = alphashape(pos, alpha=1)
     plot_alphashape(pos, points, edges, plot_pos=True)
+    plt.show()
 
-# %%
+    ### Plotting county lines of entire state from block_graph using alpha-shapes
+    with open("block_graph.pickle", "rb") as pickle_file:
+        g = pickle5.load(pickle_file)
+    pos = get_pos(g)
+    ### Change pos x,y for some reason...
+    pos[:, [0, 1]] = pos[:, [1, 0]]
+    pos_dict, points_dict, edges_dict = get_graph_alphashapes(g, pos, alpha=20)
+    plot_point_cloud_alphashape(pos_dict, points_dict, edges_dict)
+    plt.show()
