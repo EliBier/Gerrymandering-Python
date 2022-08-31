@@ -124,6 +124,7 @@ for entry in raw_county_borders:
     # adjacencies are county index
     adjacencies = [int(x) for x in entry[1].split(",")]
     # boundaries are range [0,110405]
+    # boundaries are for adjoining counties based on the number of shared borders
     boundaries = [int(x) for x in entry[2].split(",")]
 
     raw_county_borders_dict[county_idx] = {}
@@ -170,6 +171,7 @@ for county, idx in county_idx_lookup.items():
 
 total = county_pops.astype(int).sum()
 tot_pop = [total, round(total / N_DISTRICTS)]
+# fix target population so that it has a factor applied to it
 
 
 #%%
@@ -282,6 +284,7 @@ def district_filling(
     target_pop: int,
     neigh_order_fn: Callable,
 ):
+    # add maximum allowable and minimum exit populations as arguments at some
     """
     Recursive function using county filling method to define district.
 
@@ -292,7 +295,7 @@ def district_filling(
     d: int
         District index
     n: int
-        Node index
+        Node index (this is the seed node)
     district_pops: dict
         Dictionary holding the current district populations
     target_pop: int
@@ -314,7 +317,33 @@ def district_filling(
 
     for neigh in neigh_order_fn(g, g.neighbors(n)):
         if g.nodes[neigh]["district"] == -1:
+            """
+            The pseudo-code below will be necessary at some point it checks whether adding the current node to the current district will be greater than the maximum allowable population
+            if this is true it returns which ends the recursion for that neighbor node and that neighbor node will not be added to the current district
+            """
+            # if g.nodes(neighbor[population]) > maximum_allowable_pop - district_pops[d]
+            # return
             district_filling(g, d, neigh, district_pops, target_pop, neigh_order_fn)
+    # check if neighbor will bring it above the hard maximum and if it does then don't call district filling on that neighbor
+
+
+def create_districts(
+    g: nx.graph,
+    d: int,
+    n: int,
+    district_pops: dict,
+    target_pop: int,
+    neigh_order_fn: Callable,
+    district_start_node_fn: Callable,
+):
+    """
+    This is the main function loop that runs the district_filling argument for the number of districts that need to be created as well as re-ordering the neighbor list whenever a new district needs to be created
+    """
+    for i in range(N_DISTRICTS):
+        # district_start_node = district_start_node_fn(g)
+        # district_filling(g, i , seed_node...)
+        # for district checking if the district is greater than maximum allowable_pop but county size is 1 it is allowed at the moment because no county splitting atm
+        i = 1
 
 
 def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
@@ -340,6 +369,16 @@ def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
         nlist.append(neigh)
         plist.append(g.nodes[neigh]["population"])
     sort_idx = np.argsort(plist)[::-1]
+    return [nlist[x] for x in sort_idx]
+
+
+def leftmost_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+    # Orders the neighboring nodes from left to right based on latitude
+    nlist = []
+    latlist = []
+    for neigh in neigh_iter:
+        nlist.append(neigh)
+    sort_idx = np.argsort(latlist)
     return [nlist[x] for x in sort_idx]
 
 
@@ -370,6 +409,7 @@ draw_graph(g)
 #%%
 
 ### min neigh ordering
+# This ordering does not respect district borders will create districts that are split
 g = read_graph("county_graph.pickle")
 district_pops = {}
 for d in range(N_DISTRICTS):
@@ -387,22 +427,23 @@ for d in range(N_DISTRICTS):
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
 draw_graph(g)
 
+
 #%%
 
+### leftmost neigh ordering
+g = read_graph("county_graph.pickle")
+district_pops = {}
+for d in range(N_DISTRICTS):
+    district_pops[d] = 0
+district_filling(g, 0, seed_county, district_pops, tot_pop[1], leftmost_neigh_order_fn)
+
+#%%
 ### Multiple district example using default neigh ordering
 g = read_graph("county_graph.pickle")
 district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
-
-for i in range(N_DISTRICTS):
-    for node in g:
-        if g.nodes[node]["district"] == -1:
-            district_filling(
-                g, i + 1, node, district_pops, tot_pop[1], default_neigh_order_fn
-            )
-draw_graph(g)
 
 
 #%%
@@ -428,6 +469,16 @@ Some better optimization possibilites will be looking a some number of closest n
 
 """
 Ideas:
+    - if district population is greater than minimum value but less than max value randomly decide to continue eating nodes with a lower probability as population approaches hard max
+    - Need to check whether networkx has computational graph functions to check whether nodes are connnected 
+    - add neighbor with most adjacencies to current district first
+        - use yield inside neighbor function instead of return
+            - need to calculate next best node inside the for loop and then yield result
+            for i in range(num_neighbors):
+                n = calculate node with most adjacencies to nodes in current district and district is unassigned
+                (if equal number randomly choose between nodes)
+                yield n
+                
     - Might want to create a better draw method so that I can draw the block graph without it being a mess
         - scipy.spatial.convexhull based on latitude longitude (?)
             - Doesn't work well and doesn't create a good representation

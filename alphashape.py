@@ -61,11 +61,7 @@ def alphashape(pos, alpha=1):
     count_edges = {}
     delete_edges = {}
     all_edges = np.vstack(
-        [
-            keep_tri[:, [0, 1]],
-            keep_tri[:, [0, 2]],
-            keep_tri[:, [1, 2]],
-        ]
+        [keep_tri[:, [0, 1]], keep_tri[:, [0, 2]], keep_tri[:, [1, 2]],]
     )
     all_edges = list(map(tuple, all_edges))
     for edge in all_edges:
@@ -112,10 +108,7 @@ def get_graph_point_clouds(g, pos, attribute="county"):
 
 
 def get_graph_alphashapes(
-    g,
-    pos,
-    attribute="county",
-    alpha=1,
+    g, pos, attribute="county", alpha=1,
 ):
     point_clouds, _ = get_graph_point_clouds(g, pos)
     pos_dict = {}
@@ -191,11 +184,11 @@ def get_pos(g):
 # %%
 
 if __name__ == "__main__":
-    import pickle5
+    import pickle
 
     ### Plotting simple outline of state from county centers using alpha-shape
     with open("county_graph.pickle", "rb") as pickle_file:
-        g = pickle5.load(pickle_file)
+        g = pickle.load(pickle_file)
     pos = get_pos(g)
     points, edges = alphashape(pos, alpha=1)
     plot_alphashape(pos, points, edges, plot_pos=True)
@@ -203,10 +196,21 @@ if __name__ == "__main__":
 
     ### Plotting county lines of entire state from block_graph using alpha-shapes
     with open("block_graph.pickle", "rb") as pickle_file:
-        g = pickle5.load(pickle_file)
+        g = pickle.load(pickle_file)
     pos = get_pos(g)
     ### Change pos x,y for some reason...
     pos[:, [0, 1]] = pos[:, [1, 0]]
     pos_dict, points_dict, edges_dict = get_graph_alphashapes(g, pos, alpha=20)
     plot_point_cloud_alphashape(pos_dict, points_dict, edges_dict)
     plt.show()
+
+
+# %%
+pos = get_pos(g)
+### Change pos x,y for some reason...
+pos[:, [0, 1]] = pos[:, [1, 0]]
+pos_dict, points_dict, edges_dict = get_graph_alphashapes(g, pos, alpha=20)
+plot_point_cloud_alphashape(pos_dict, points_dict, edges_dict)
+plt.show()
+
+# %%
