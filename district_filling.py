@@ -354,7 +354,7 @@ def district_start_node_fn(g):
             unassigned_nodes.append(node)
     unassigned_nodes_graph = g.subgraph(unassigned_nodes)
     draw_graph(unassigned_nodes_graph)
-    left_most_node = unassigned_nodes_graph.nodes(unassigned_nodes[0])
+    left_most_node = unassigned_nodes_graph.nodes(unassigned_nodes[0], data=True)
     for node in unassigned_nodes_graph:
         if unassigned_nodes_graph.nodes[node]["latitude"] > left_most_node["latitude"]:
             left_most_node = node
