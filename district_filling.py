@@ -346,6 +346,22 @@ def create_districts(
         i = 1
 
 
+#%%
+def district_start_node_fn(g):
+    unassigned_nodes = []
+    for node in g:
+        if g.nodes[node]["district"] == -1:
+            unassigned_nodes.append(node)
+    unassigned_nodes_graph = g.subgraph(unassigned_nodes)
+    draw_graph(unassigned_nodes_graph)
+    left_most_node = unassigned_nodes_graph.nodes(unassigned_nodes[0])
+    for node in unassigned_nodes_graph:
+        if unassigned_nodes_graph.nodes[node]["latitude"] > left_most_node["latitude"]:
+            left_most_node = node
+    return left_most_node
+
+
+#%%
 def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
     return neigh_iter
 
@@ -369,16 +385,6 @@ def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
         nlist.append(neigh)
         plist.append(g.nodes[neigh]["population"])
     sort_idx = np.argsort(plist)[::-1]
-    return [nlist[x] for x in sort_idx]
-
-
-def leftmost_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
-    # Orders the neighboring nodes from left to right based on latitude
-    nlist = []
-    latlist = []
-    for neigh in neigh_iter:
-        nlist.append(neigh)
-    sort_idx = np.argsort(latlist)
     return [nlist[x] for x in sort_idx]
 
 
@@ -424,18 +430,9 @@ g = read_graph("county_graph.pickle")
 district_pops = {}
 for d in range(N_DISTRICTS):
     district_pops[d] = 0
-district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
+    district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
 draw_graph(g)
 
-
-#%%
-
-### leftmost neigh ordering
-g = read_graph("county_graph.pickle")
-district_pops = {}
-for d in range(N_DISTRICTS):
-    district_pops[d] = 0
-district_filling(g, 0, seed_county, district_pops, tot_pop[1], leftmost_neigh_order_fn)
 
 #%%
 ### Multiple district example using default neigh ordering
