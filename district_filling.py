@@ -3,6 +3,7 @@
 This is my own original work based off of the previously created data files from Amy's project and insights from rewriting her code
 """
 
+from random import random
 import scipy.io
 import csv
 import pprint as pp
@@ -12,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import networkx as nx
 import pandas as pd
+import random
+
 
 import matplotlib.pyplot as plt
 
@@ -327,15 +330,14 @@ def district_filling(
     # check if neighbor will bring it above the hard maximum and if it does then don't call district filling on that neighbor
 
 
+#%%
 def create_districts(
     g: nx.graph,
-    d: int,
-    n: int,
-    district_pops: dict,
     target_pop: int,
-    neigh_order_fn: Callable,
     district_start_node_fn: Callable,
+    neigh_order_fn: Callable,
 ):
+    district_pops = {}
     """
     This is the main function loop that runs the district_filling argument for the number of districts that need to be created as well as re-ordering the neighbor list whenever a new district needs to be created
     """
@@ -343,7 +345,9 @@ def create_districts(
         # district_start_node = district_start_node_fn(g)
         # district_filling(g, i , seed_node...)
         # for district checking if the district is greater than maximum allowable_pop but county size is 1 it is allowed at the moment because no county splitting atm
-        i = 1
+        n = district_start_node_fn(g)
+        district_filling(g, d, n, district_pops, target_pop, neigh_order_fn)
+    draw_graph(g)
 
 
 #%%
@@ -354,11 +358,34 @@ def district_start_node_fn(g):
             unassigned_nodes.append(node)
     unassigned_nodes_graph = g.subgraph(unassigned_nodes)
     draw_graph(unassigned_nodes_graph)
-    left_most_node = unassigned_nodes_graph.nodes(unassigned_nodes[0], data=True)
+    left_most_node = unassigned_nodes[0]
     for node in unassigned_nodes_graph:
-        if unassigned_nodes_graph.nodes[node]["latitude"] > left_most_node["latitude"]:
+        if (
+            unassigned_nodes_graph.nodes[node]["latitude"]
+            < unassigned_nodes_graph.nodes[left_most_node]["latitude"]
+        ):
             left_most_node = node
     return left_most_node
+
+
+#%%
+def most_adjacencies_neigh_order_fn(d: int, g: nx.graph, neigh_iter: Iterable):
+    current_district_num = d
+    # This will store a list of lists of each node and the number of neighbors in the current district that the node has followed by a random number in the format [node_ID, num_neighbors, random]. This is done so that the list can be sorted by the num_neighbors and then by the random number to create different graphs
+    node_neigh_random = []
+    # for each node that is a neighbor of the current node
+    for node in neigh_iter:
+        neighbors_in_current_district = 0
+        # iterate through the current node's neighbor's
+        for neighbor in g.neighbors(node):
+            # if the neighbor's district is equal to the current district that is being created increase the value of the neighbors_in_current_district by 1
+            if g.nodes[neighbor]["district"] == current_district_num:
+                neighbors_in_current_district += 1
+        node_neigh_random.append(
+            [node, neighbors_in_current_district, random.randint(1, 10000)]
+        )
+    node_neigh_random = sorted(node_neigh_random, key=lambda x: (x[1], x[2]))
+    yield [x[0] for x in node_neigh_random]
 
 
 #%%
@@ -442,7 +469,10 @@ for d in range(N_DISTRICTS):
     district_pops[d] = 0
 district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
 
-
+#%%
+g = read_graph("county_graph.pickle")
+district_ops = {}
+create_districts(g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn)
 #%%
 ### make block graph
 # g = init_nc_block_graph()
@@ -466,6 +496,7 @@ Some better optimization possibilites will be looking a some number of closest n
 
 """
 Ideas:
+    - add county names to nodes to make troubleshooting easier
     - if district population is greater than minimum value but less than max value randomly decide to continue eating nodes with a lower probability as population approaches hard max
     - Need to check whether networkx has computational graph functions to check whether nodes are connnected 
     - add neighbor with most adjacencies to current district first
