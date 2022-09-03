@@ -357,7 +357,9 @@ def district_start_node_fn(g):
         if g.nodes[node]["district"] == -1:
             unassigned_nodes.append(node)
     unassigned_nodes_graph = g.subgraph(unassigned_nodes)
-    draw_graph(unassigned_nodes_graph)
+    # if there are no unassigned nodes
+    if not unassigned_nodes:
+        return None
     left_most_node = unassigned_nodes[0]
     for node in unassigned_nodes_graph:
         if (
@@ -373,19 +375,25 @@ def most_adjacencies_neigh_order_fn(d: int, g: nx.graph, neigh_iter: Iterable):
     current_district_num = d
     # This will store a list of lists of each node and the number of neighbors in the current district that the node has followed by a random number in the format [node_ID, num_neighbors, random]. This is done so that the list can be sorted by the num_neighbors and then by the random number to create different graphs
     node_neigh_random = []
-    # for each node that is a neighbor of the current node
-    for node in neigh_iter:
-        neighbors_in_current_district = 0
-        # iterate through the current node's neighbor's
-        for neighbor in g.neighbors(node):
-            # if the neighbor's district is equal to the current district that is being created increase the value of the neighbors_in_current_district by 1
-            if g.nodes[neighbor]["district"] == current_district_num:
-                neighbors_in_current_district += 1
-        node_neigh_random.append(
-            [node, neighbors_in_current_district, random.randint(1, 10000)]
-        )
-    node_neigh_random = sorted(node_neigh_random, key=lambda x: (x[1], x[2]))
-    yield [x[0] for x in node_neigh_random]
+    valid_node_list = [None]
+    valid_adj_list = [0]
+    for n in neigh_iter:
+        ### Cannot add if already assigned
+        if g.nodes[n]["district"] != -1:
+            continue
+        valid_node_list.append(n)
+        adj = 0
+        temp_neigh_list = list(g.neighbors(n))
+        for temp_n in temp_neigh_list:
+            if g.nodes[temp_n]["district"] == d:
+                adj += 1
+        valid_adj_list.append(adj)
+    valid_adj_list = np.array(valid_adj_list)
+    max_adj = np.max(valid_adj_list)
+    max_adj_idx = np.where(valid_adj_list == max_adj)[0]
+    chosen_idx = np.random.choice(max_adj_idx, size=(1,))[0]
+    chosen_node = valid_node_list[chosen_idx]
+    yield chosen_node
 
 
 #%%
