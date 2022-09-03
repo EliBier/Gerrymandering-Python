@@ -1,6 +1,7 @@
 #%%
 
 from random import random
+from tkinter.tix import MAX
 import scipy.io
 import csv
 import pprint as pp
@@ -17,8 +18,13 @@ from matplotlib.lines import Line2D
 
 data_path = Path("data")
 N_DISTRICTS = 13
-MIN_DISTRICT_POP=100000
-MAX_DISTRICT_POP=1400000
+MIN_DISTRICT_POP = 400000
+MAX_DISTRICT_POP = 1400000
+
+LOGISTIC_K = 0.75
+LOGISTIC_MIDPOINT = 700000
+LOGISTIC_SCALE_FACTOR = 100000
+LOGISTIC_MIDPOINT /= LOGISTIC_SCALE_FACTOR
 
 #%%
 
@@ -156,7 +162,7 @@ DISTRICT_COLORS = {
 }
 
 
-def draw_graph(g,legend=True):
+def draw_graph(g, legend=True):
     fig = plt.figure(figsize=(20, 5))
     ax = fig.add_subplot(111)
     colors = []
@@ -164,7 +170,7 @@ def draw_graph(g,legend=True):
         colors.append(DISTRICT_COLORS[g.nodes[node]["district"]])
     nx.draw(g, pos=county_centers_dict, ax=ax, node_color=colors)
     ax.set_aspect("equal")
-    
+
     if not legend:
         return ax
 
@@ -174,20 +180,32 @@ def draw_graph(g,legend=True):
         pop = g.nodes[node]["population"]
         if d not in district_pops:
             district_pops[d] = 0
-        district_pops[d] += pop 
+        district_pops[d] += pop
     legend_elements = []
-    for key in range(-1,N_DISTRICTS):
-        value = district_pops.get(key,0)
+    for key in range(-1, N_DISTRICTS):
+        value = district_pops.get(key, 0)
         label = f"{key}: {int(value)}"
         c = DISTRICT_COLORS[key]
-        legend_elements.append(Line2D([0],[0],c=c, marker='o', color='w', label=label,
-                          markerfacecolor=c, markersize=15))
-    ax.legend(handles=legend_elements,
-              ncol=len(legend_elements)//2,
-              bbox_to_anchor=(0.5, 0),
-              loc="center",
-              fontsize=14)
-    
+        legend_elements.append(
+            Line2D(
+                [0],
+                [0],
+                c=c,
+                marker="o",
+                color="w",
+                label=label,
+                markerfacecolor=c,
+                markersize=15,
+            )
+        )
+    ax.legend(
+        handles=legend_elements,
+        ncol=len(legend_elements) // 2,
+        bbox_to_anchor=(0.5, 0),
+        loc="center",
+        fontsize=14,
+    )
+
     return ax
 
 
@@ -239,9 +257,21 @@ def write_graph(g: nx.graph, path: Path):
 
 def read_graph(path: Path):
     import pickle5
+
     with open("block_graph.pickle", "rb") as pickle_file:
         g = pickle5.load(pickle_file)
     return g
+
+
+def get_logistic_weight(current_pop):
+    x = current_pop / LOGISTIC_SCALE_FACTOR
+    weight = 1 / (1 + np.exp(-LOGISTIC_K * (x - LOGISTIC_MIDPOINT)))
+    return weight
+
+
+def get_logistic_exit(current_pop):
+    weight = get_logistic_weight(current_pop)
+    return np.random.choice([True, False], size=(1,), p=[weight, 1 - weight])[0]
 
 
 def district_filling(
@@ -273,13 +303,14 @@ def district_filling(
         the graph and iterator from g.neighbors(n).
 
     """
-    # This doesn't work for breadth first search
-    # Needs to fixed so neighbors
     if g.nodes[n]["district"] != -1:
         raise Exception("Only input undeclared district")
-    
-    if district_pops[d] > target_pop:
-        return
+
+    if district_pops[d] > MIN_DISTRICT_POP:
+        if district_pops[d] > MAX_DISTRICT_POP:
+            return
+        if get_logistic_exit(district_pops[d]):
+            return
 
     g.nodes[n]["district"] = d
     district_pops[d] += g.nodes[n]["population"]
@@ -288,10 +319,6 @@ def district_filling(
         if neigh == None:
             return
         if g.nodes[neigh]["district"] == -1:
-            """
-            The pseudo-code below will be necessary at some point it checks whether adding the current node to the current district will be greater than the maximum allowable population
-            if this is true it returns which ends the recursion for that neighbor node and that neighbor node will not be added to the current district
-            """
             if g.nodes[neigh]["population"] > (MAX_DISTRICT_POP - district_pops[d]):
                 continue
             else:
@@ -328,12 +355,19 @@ def district_start_node_fn(g):
         return None
     left_most_node = unassigned_nodes[0]
     for node in unassigned_nodes:
-        if (
-            g.nodes[node]["latitude"]
-            < g.nodes[left_most_node]["latitude"]
-        ):
+        if g.nodes[node]["latitude"] < g.nodes[left_most_node]["latitude"]:
             left_most_node = node
     return left_most_node
+
+
+def random_start_node_fn(g):
+    unassigned_nodes = []
+    for node in g:
+        if g.nodes[node]["district"] == -1:
+            unassigned_nodes.append(node)
+    if len(unassigned_nodes) == 0:
+        return None
+    return np.random.choice(unassigned_nodes, (1,))[0]
 
 
 def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
@@ -353,7 +387,7 @@ def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
         adj_list.append(adj)
     max_adj = np.max(adj_list)
     max_idx = np.where(np.array(adj_list) == max_adj)[0]
-    yield valid_node_list[np.random.choice(max_idx,size=(1,))[0]]
+    yield valid_node_list[np.random.choice(max_idx, size=(1,))[0]]
 
 
 def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
@@ -388,7 +422,7 @@ def draw_block_graph(g: nx.graph):
         g.nodes
 
 
-def is_valid_graph(g,district_pops):
+def is_valid_graph(g, district_pops):
     assigned_pop = 0
     for d in range(N_DISTRICTS):
         if district_pops[d] == 0:
@@ -401,20 +435,61 @@ def is_valid_graph(g,district_pops):
     if assigned_pop != tot_pop[0]:
         return False
     return True
-            
-            
+
 
 #%%
 
 while True:
     g = init_nc_graph()
-    district_pops = create_districts(g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn)
-    if is_valid_graph(g,district_pops):
+    district_pops = create_districts(
+        g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn
+    )
+    if is_valid_graph(g, district_pops):
         break
 
 draw_graph(g)
 plt.show()
 plt.close()
 
+
+#%%
+
+
+#%%
+
+### Investigating logistical function for probability of exiting based on pop
+### https://en.wikipedia.org/wiki/Logistic_function
+klist = [0.5, 0.75, 1, 2, 5]
+x0 = 700000 / 100000
+x = np.arange(0, MAX_DISTRICT_POP, 10000) / 100000
+fig = plt.figure()
+ax = fig.add_subplot(111)
+for k in klist:
+    y = 1 / (1 + np.exp(-k * (x - x0)))
+    ax.plot(x, y, label=f"{k}")
+plt.legend()
+plt.show()
+plt.close()
+
+### I think 0.75 looks good here
+
+#%%
+
+### Ensuring that implementation is correct
+x = np.arange(0, MAX_DISTRICT_POP, 100000)
+y = 1 / (1 + np.exp(-LOGISTIC_K * (x / LOGISTIC_SCALE_FACTOR - LOGISTIC_MIDPOINT)))
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.plot(x, y)
+ntest = 1000
+for current_pop in x:
+    nexit = 0
+    for _ in range(ntest):
+        if get_logistic_exit(current_pop):
+            nexit += 1
+    nexit /= ntest
+    ax.scatter(current_pop, nexit, c="k")
+plt.show()
+plt.close()
 
 #%%
