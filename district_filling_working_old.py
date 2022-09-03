@@ -17,8 +17,8 @@ from matplotlib.lines import Line2D
 
 data_path = Path("data")
 N_DISTRICTS = 13
-MIN_DISTRICT_POP=100000
-MAX_DISTRICT_POP=1400000
+MIN_DISTRICT_POP = 100000
+MAX_DISTRICT_POP = 1400000
 
 #%%
 
@@ -156,7 +156,7 @@ DISTRICT_COLORS = {
 }
 
 
-def draw_graph(g,legend=True):
+def draw_graph(g, legend=True):
     fig = plt.figure(figsize=(20, 5))
     ax = fig.add_subplot(111)
     colors = []
@@ -164,7 +164,7 @@ def draw_graph(g,legend=True):
         colors.append(DISTRICT_COLORS[g.nodes[node]["district"]])
     nx.draw(g, pos=county_centers_dict, ax=ax, node_color=colors)
     ax.set_aspect("equal")
-    
+
     if not legend:
         return ax
 
@@ -174,20 +174,32 @@ def draw_graph(g,legend=True):
         pop = g.nodes[node]["population"]
         if d not in district_pops:
             district_pops[d] = 0
-        district_pops[d] += pop 
+        district_pops[d] += pop
     legend_elements = []
-    for key in range(-1,N_DISTRICTS):
-        value = district_pops.get(key,0)
+    for key in range(-1, N_DISTRICTS):
+        value = district_pops.get(key, 0)
         label = f"{key}: {int(value)}"
         c = DISTRICT_COLORS[key]
-        legend_elements.append(Line2D([0],[0],c=c, marker='o', color='w', label=label,
-                          markerfacecolor=c, markersize=15))
-    ax.legend(handles=legend_elements,
-              ncol=len(legend_elements)//2,
-              bbox_to_anchor=(0.5, 0),
-              loc="center",
-              fontsize=14)
-    
+        legend_elements.append(
+            Line2D(
+                [0],
+                [0],
+                c=c,
+                marker="o",
+                color="w",
+                label=label,
+                markerfacecolor=c,
+                markersize=15,
+            )
+        )
+    ax.legend(
+        handles=legend_elements,
+        ncol=len(legend_elements) // 2,
+        bbox_to_anchor=(0.5, 0),
+        loc="center",
+        fontsize=14,
+    )
+
     return ax
 
 
@@ -239,6 +251,7 @@ def write_graph(g: nx.graph, path: Path):
 
 def read_graph(path: Path):
     import pickle5
+
     with open("block_graph.pickle", "rb") as pickle_file:
         g = pickle5.load(pickle_file)
     return g
@@ -277,7 +290,7 @@ def district_filling(
     # Needs to fixed so neighbors
     if g.nodes[n]["district"] != -1:
         raise Exception("Only input undeclared district")
-    
+
     if district_pops[d] > target_pop:
         return
 
@@ -328,10 +341,7 @@ def district_start_node_fn(g):
         return None
     left_most_node = unassigned_nodes[0]
     for node in unassigned_nodes:
-        if (
-            g.nodes[node]["latitude"]
-            < g.nodes[left_most_node]["latitude"]
-        ):
+        if g.nodes[node]["latitude"] < g.nodes[left_most_node]["latitude"]:
             left_most_node = node
     return left_most_node
 
@@ -353,14 +363,14 @@ def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
         adj_list.append(adj)
     max_adj = np.max(adj_list)
     max_idx = np.where(np.array(adj_list) == max_adj)[0]
-    yield valid_node_list[np.random.choice(max_idx,size=(1,))[0]]
+    yield valid_node_list[np.random.choice(max_idx, size=(1,))[0]]
 
 
-def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     return neigh_iter
 
 
-def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     ### Orders the neighboring nodes from minimum to maximum
     nlist = []
     plist = []
@@ -371,7 +381,7 @@ def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
     return [nlist[x] for x in sort_idx]
 
 
-def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     ### Orders the neighboring nodes from maximum to minimum
     nlist = []
     plist = []
@@ -388,7 +398,7 @@ def draw_block_graph(g: nx.graph):
         g.nodes
 
 
-def is_valid_graph(g,district_pops):
+def is_valid_graph(g, district_pops):
     assigned_pop = 0
     for d in range(N_DISTRICTS):
         if district_pops[d] == 0:
@@ -401,15 +411,16 @@ def is_valid_graph(g,district_pops):
     if assigned_pop != tot_pop[0]:
         return False
     return True
-            
-            
+
 
 #%%
 
 while True:
     g = init_nc_graph()
-    district_pops = create_districts(g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn)
-    if is_valid_graph(g,district_pops):
+    district_pops = create_districts(
+        g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn
+    )
+    if is_valid_graph(g, district_pops):
         break
 
 draw_graph(g)
