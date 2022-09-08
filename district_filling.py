@@ -4,6 +4,7 @@ This is my own original work based off of the previously created data files from
 """
 
 from random import random
+from tkinter.tix import MAX
 import scipy.io
 import csv
 import pprint as pp
@@ -15,14 +16,18 @@ import networkx as nx
 import pandas as pd
 import random
 
-
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 data_path = Path("data")
-N_DISTRICTS = 14
-MIN_DISTRICT_POP = 100000
+N_DISTRICTS = 13
+MIN_DISTRICT_POP = 400000
 MAX_DISTRICT_POP = 1400000
+
+LOGISTIC_K = 0.75
+LOGISTIC_MIDPOINT = 700000
+LOGISTIC_SCALE_FACTOR = 100000
+LOGISTIC_MIDPOINT /= LOGISTIC_SCALE_FACTOR
 
 #%%
 
@@ -316,7 +321,22 @@ def write_graph(g: nx.graph, path: Path):
 
 
 def read_graph(path: Path):
-    return nx.read_gpickle(path)
+    import pickle5
+
+    with open("block_graph.pickle", "rb") as pickle_file:
+        g = pickle5.load(pickle_file)
+    return g
+
+
+def get_logistic_weight(current_pop):
+    x = current_pop / LOGISTIC_SCALE_FACTOR
+    weight = 1 / (1 + np.exp(-LOGISTIC_K * (x - LOGISTIC_MIDPOINT)))
+    return weight
+
+
+def get_logistic_exit(current_pop):
+    weight = get_logistic_weight(current_pop)
+    return np.random.choice([True, False], size=(1,), p=[weight, 1 - weight])[0]
 
 
 def district_filling(
@@ -327,6 +347,7 @@ def district_filling(
     target_pop: int,
     neigh_order_fn: Callable,
 ):
+    # add maximum allowable and minimum exit populations as arguments at some
     """
     Recursive function using county filling method to define district.
 
@@ -347,13 +368,14 @@ def district_filling(
         the graph and iterator from g.neighbors(n).
 
     """
-    # This doesn't work for breadth first search
-    # Needs to fixed so neighbors
     if g.nodes[n]["district"] != -1:
         raise Exception("Only input undeclared district")
 
-    if district_pops[d] > target_pop:
-        return
+    if district_pops[d] > MIN_DISTRICT_POP:
+        if district_pops[d] > MAX_DISTRICT_POP:
+            return
+        if get_logistic_exit(district_pops[d]):
+            return
 
     g.nodes[n]["district"] = d
     district_pops[d] += g.nodes[n]["population"]
@@ -362,15 +384,10 @@ def district_filling(
         if neigh == None:
             return
         if g.nodes[neigh]["district"] == -1:
-            """
-            The pseudo-code below will be necessary at some point it checks whether adding the current node to the current district will be greater than the maximum allowable population
-            if this is true it returns which ends the recursion for that neighbor node and that neighbor node will not be added to the current district
-            """
             if g.nodes[neigh]["population"] > (MAX_DISTRICT_POP - district_pops[d]):
                 continue
             else:
                 district_filling(g, d, neigh, district_pops, target_pop, neigh_order_fn)
-    # check if neighbor will bring it above the hard maximum and if it does then don't call district filling on that neighbor
 
 
 #%%
@@ -412,6 +429,17 @@ def district_start_node_fn(g):
 
 
 #%%
+def random_start_node_fn(g):
+    unassigned_nodes = []
+    for node in g:
+        if g.nodes[node]["district"] == -1:
+            unassigned_nodes.append(node)
+    if len(unassigned_nodes) == 0:
+        return None
+    return np.random.choice(unassigned_nodes, (1,))[0]
+
+
+#%%
 def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     neigh_list = list(neigh_iter)
     valid_node_list = [None]
@@ -433,11 +461,11 @@ def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
 
 
 #%%
-def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def default_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     return neigh_iter
 
 
-def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     ### Orders the neighboring nodes from minimum to maximum
     nlist = []
     plist = []
@@ -448,7 +476,7 @@ def min_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
     return [nlist[x] for x in sort_idx]
 
 
-def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
+def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     ### Orders the neighboring nodes from maximum to minimum
     nlist = []
     plist = []
@@ -535,6 +563,43 @@ while True:
 draw_graph(g)
 plt.show()
 plt.close()
+#%%
+### Investigating logistical function for probability of exiting based on pop
+### https://en.wikipedia.org/wiki/Logistic_function
+klist = [0.5, 0.75, 1, 2, 5]
+x0 = 700000 / 100000
+x = np.arange(0, MAX_DISTRICT_POP, 10000) / 100000
+fig = plt.figure()
+ax = fig.add_subplot(111)
+for k in klist:
+    y = 1 / (1 + np.exp(-k * (x - x0)))
+    ax.plot(x, y, label=f"{k}")
+plt.legend()
+plt.show()
+plt.close()
+
+### I think 0.75 looks good here
+
+#%%
+
+### Ensuring that implementation is correct
+x = np.arange(0, MAX_DISTRICT_POP, 100000)
+y = 1 / (1 + np.exp(-LOGISTIC_K * (x / LOGISTIC_SCALE_FACTOR - LOGISTIC_MIDPOINT)))
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.plot(x, y)
+ntest = 1000
+for current_pop in x:
+    nexit = 0
+    for _ in range(ntest):
+        if get_logistic_exit(current_pop):
+            nexit += 1
+    nexit /= ntest
+    ax.scatter(current_pop, nexit, c="k")
+plt.show()
+plt.close()
+
+#%%
 #%%
 ### make block graph
 # g = init_nc_block_graph()
