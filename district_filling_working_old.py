@@ -156,9 +156,9 @@ DISTRICT_COLORS = {
     9: "tab:cyan",
     10: "yellow",
     11: "magenta",
-    12: "aquamarine",
+    12: "maroon",
     13: "beige",
-    14: "maroon",
+    14: "aquamarine",
 }
 
 
@@ -166,9 +166,10 @@ def draw_graph(g, legend=True):
     fig = plt.figure(figsize=(20, 5))
     ax = fig.add_subplot(111)
     colors = []
+    label = nx.get_node_attributes(g, "district")
     for node in g:
         colors.append(DISTRICT_COLORS[g.nodes[node]["district"]])
-    nx.draw(g, pos=county_centers_dict, ax=ax, node_color=colors)
+    nx.draw(g, pos=county_centers_dict, ax=ax, node_color=colors, labels=label)
     ax.set_aspect("equal")
 
     if not legend:
