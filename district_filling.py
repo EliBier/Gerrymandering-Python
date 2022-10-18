@@ -559,7 +559,7 @@ while True:
     )
     if is_valid_graph(g, district_pops):
         break
-
+# Oh, pretty colors!
 draw_graph(g)
 plt.show()
 plt.close()
