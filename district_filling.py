@@ -511,44 +511,44 @@ write_graph(g, "county_graph.pickle")
 
 #%%
 
-### Default neigh ordering
-g = read_graph("county_graph.pickle")
-district_pops = {}
-for d in range(N_DISTRICTS):
-    district_pops[d] = 0
-district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
-draw_graph(g)
+# ### Default neigh ordering
+# g = read_graph("county_graph.pickle")
+# district_pops = {}
+# for d in range(N_DISTRICTS):
+#     district_pops[d] = 0
+# district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
+# draw_graph(g)
 
 
-#%%
+# #%%
 
-### min neigh ordering
-# This ordering does not respect district borders will create districts that are split
-g = read_graph("county_graph.pickle")
-district_pops = {}
-for d in range(N_DISTRICTS):
-    district_pops[d] = 0
-district_filling(g, 0, seed_county, district_pops, tot_pop[1], min_neigh_order_fn)
-draw_graph(g)
+# ### min neigh ordering
+# # This ordering does not respect district borders will create districts that are split
+# g = read_graph("county_graph.pickle")
+# district_pops = {}
+# for d in range(N_DISTRICTS):
+#     district_pops[d] = 0
+# district_filling(g, 0, seed_county, district_pops, tot_pop[1], min_neigh_order_fn)
+# draw_graph(g)
 
-#%%
+# #%%
 
-### max neigh ordering
-g = read_graph("county_graph.pickle")
-district_pops = {}
-for d in range(N_DISTRICTS):
-    district_pops[d] = 0
-    district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
-draw_graph(g)
+# ### max neigh ordering
+# g = read_graph("county_graph.pickle")
+# district_pops = {}
+# for d in range(N_DISTRICTS):
+#     district_pops[d] = 0
+#     district_filling(g, 0, seed_county, district_pops, tot_pop[1], max_neigh_order_fn)
+# draw_graph(g)
 
 
-#%%
-### Multiple district example using default neigh ordering
-g = read_graph("county_graph.pickle")
-district_pops = {}
-for d in range(N_DISTRICTS):
-    district_pops[d] = 0
-district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
+# #%%
+# ### Multiple district example using default neigh ordering
+# g = read_graph("county_graph.pickle")
+# district_pops = {}
+# for d in range(N_DISTRICTS):
+#     district_pops[d] = 0
+# district_filling(g, 0, seed_county, district_pops, tot_pop[1], default_neigh_order_fn)
 
 #%%
 # Current Main loop. Creates graphs
