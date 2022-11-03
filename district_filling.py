@@ -118,6 +118,12 @@ for idx, entry in enumerate(county_centers):
     county_centers_dict[int(entry[0])] = [float(entry[2]), float(entry[1])]
     county_idx_lookup[int(entry[0])] = idx
 
+# Creating block_centers_dict
+block_centers_dict = {}
+for ind in df.index:
+    block_centers_dict.update(
+        {blockid2idx[df["BlockID"][ind]]: [df["Longitude"][ind], df["Latitude"][ind]]}
+    )
 #%%
 
 
@@ -250,14 +256,14 @@ def save_graph(graph, file_name):
     del fig
 
 
-def draw_graph(g, legend=True):
+def draw_graph(g, node_centers_dict, legend=True):
     fig = plt.figure(figsize=(20, 5))
     ax = fig.add_subplot(111)
     colors = []
     label = nx.get_node_attributes(g, "district")
     for node in g:
         colors.append(DISTRICT_COLORS[g.nodes[node]["district"]])
-    nx.draw(g, pos=county_centers_dict, ax=ax, node_color=colors, labels=label)
+    nx.draw(g, pos=node_centers_dict, ax=ax, node_color=colors, labels=label)
     ax.set_aspect("equal")
 
     if not legend:
@@ -402,6 +408,7 @@ def district_filling_iterative(
         the graph and iterator from g.neighbors(n).
 
     """
+    # Optimization (Add all blocks within the current county if the current county would not cause overage)
     queue = []
     queue.append(n)
     while len(queue) > 0:
@@ -409,13 +416,16 @@ def district_filling_iterative(
         if g.nodes[current_node]["district"] != -1:
             raise Exception("Only input undeclared district")
 
+        # Explain later
         if district_pops[d] > MIN_DISTRICT_POP:
             if district_pops[d] > MAX_DISTRICT_POP:
                 break
+
         g.nodes[current_node]["district"] = d
         district_pops[d] += g.nodes[current_node]["population"]
 
         for neigh in neigh_order_fn(g, g.neighbors(current_node), d):
+            # Needs to be faster way to determine if a node is already in a queue
             if neigh in queue or neigh == None:
                 continue
             if g.nodes[neigh]["district"] == -1:
@@ -577,18 +587,32 @@ def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
     return [nlist[x] for x in sort_idx]
 
 
+failure_conditions = [0, 0, 0, 0, 0, 0]
+
+
 def is_valid_graph(g, district_pops):
+    print(failure_conditions)
     assigned_pop = 0
     for d in range(N_DISTRICTS):
-        if district_pops[d] == 0:
-            return False
-        elif district_pops[d] < MIN_DISTRICT_POP:
-            return False
-        elif district_pops[d] > MAX_DISTRICT_POP:
-            return False
         assigned_pop += district_pops[d]
     if assigned_pop != tot_pop[0]:
+        failure_conditions[3] += 1
         return False
+    for d in range(N_DISTRICTS):
+        if district_pops[d] == 0:
+            failure_conditions[0] += 1
+            return False
+        elif district_pops[d] < MIN_DISTRICT_POP:
+            failure_conditions[1] += 1
+            return False
+        elif district_pops[d] > MAX_DISTRICT_POP:
+            failure_conditions[2] += 1
+            return False
+        assigned_pop += district_pops[d]
+
+    # if assigned_pop != tot_pop[0]:
+    #     failure_conditions[3] += 1
+    #     return False
     return True
 
 
@@ -596,7 +620,7 @@ def is_valid_graph(g, district_pops):
 
 ### Make county graph
 g = init_nc_graph()
-draw_graph(g)
+draw_graph(g, county_centers_dict)
 write_graph(g, "county_graph.pickle")
 
 #%%
@@ -642,15 +666,18 @@ write_graph(g, "county_graph.pickle")
 
 #%%
 # Current Main loop. Creates graphs
+attempts = 0
 while True:
-    g = init_nc_graph()
+    attempts += 1
+    g = read_graph("block_graph.pickle")
     district_pops = create_districts(
         g, tot_pop[1], district_start_node_fn, most_adjacencies_neigh_order_fn
     )
-    if is_valid_graph(g, district_pops):
+    print(attempts)
+    if not is_valid_graph(g, district_pops):
         break
-
-draw_graph(g)
+print(failure_conditions)
+draw_graph(g, block_centers_dict)
 plt.show()
 plt.close()
 #%%
