@@ -1,4 +1,4 @@
-#%%
+# %%
 from random import random
 import shelve
 import threading
@@ -29,8 +29,7 @@ LOGISTIC_MIDPOINT = 700000
 LOGISTIC_SCALE_FACTOR = 100000
 LOGISTIC_MIDPOINT /= LOGISTIC_SCALE_FACTOR
 
-#%%
-Blocks = pd.read_csv(data_path / "Blocks.csv", index_col="BlockID")
-Counties = pd.read_csv(data_path / "Counties.csv", index_col="CountyID")
-
 # %%
+Blocks = pd.read_csv(data_path / "Blocks.csv")
+Counties = pd.read_csv(data_path / "Counties.csv")
+CountiesAdjMat = np.genfromtxt(data_path / "CountiesAdjMat.csv", delimiter=",")
