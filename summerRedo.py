@@ -48,7 +48,6 @@ DISTRICT_COLORS = {
     14: "aquamarine",
 }
 # %%
-
 Blocks = pd.read_csv(data_path / "Blocks.csv")
 Counties = pd.read_csv(data_path / "Counties.csv")
 CountiesAdjMat = np.genfromtxt(data_path / "CountiesAdjMat.csv", delimiter=",")
@@ -94,8 +93,12 @@ def draw_graph(g, data, legend=True):
     node_positions = {}
     for index, row in data.iterrows():
         node_id = row["ID"]
-        node_positions[node_id] = (row["longitude"], row["latitude"])
+        node_positions[node_id] = (row["Longitude"], row["Latitude"])
         colors.append(DISTRICT_COLORS[district_mapping[node_id]])
+
+    print("******")
+    print("HERE")
+    print(node_positions)
 
     nx.draw(g, pos=node_positions, ax=ax, node_color=colors, with_labels=False)
 
@@ -144,15 +147,21 @@ def init_nc_graph(Counties_df):
     ### Make county graph
     g = nx.Graph()
     for index, row in Counties_df.iterrows():
-        county_id = row["CountyID"]
-        adjacent_counties = row["AdjacentCounties"]
-        if adjacent_counties:
+        county_id = row["ID"]
+        adjacent_counties_str = row["AdjacentCounties"]
+
+        if adjacent_counties_str:
+            adjacent_counties = [
+                int(x.strip()) for x in adjacent_counties_str.split(",")
+            ]
+
             for adj in adjacent_counties:
+                print(adj)
                 g.add_edge(county_id, adj)
 
     init_district_attr = {}
     for index, row in Counties_df.iterrows():
-        county_id = row["CountyID"]
+        county_id = row["ID"]
         init_district_attr[county_id] = {}
         init_district_attr[county_id]["district"] = -1
         init_district_attr[county_id]["population"] = row["Population"]
@@ -456,4 +465,22 @@ def is_valid_graph(g, district_pops):
     return True
 
 
+# %%
+attempts = 0
+while True:
+    attempts += 1
+    g = read_graph("County_graph.pickle")
+    district_pops = create_districts(
+        g,
+        POPULATION_PER_DISTRICT,
+        district_start_node_fn,
+        most_adjacencies_neigh_order_fn,
+    )
+    print(attempts)
+    if not is_valid_graph(g, district_pops):
+        break
+print(failure_conditions)
+draw_graph(g, Counties)
+plt.show()
+plt.close()
 # %%
