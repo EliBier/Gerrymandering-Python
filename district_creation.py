@@ -2,6 +2,7 @@
 from random import random
 import shelve
 import threading
+import multiprocessing
 from tkinter.tix import MAX
 import scipy.io
 import csv
@@ -95,10 +96,6 @@ def draw_graph(g, data, legend=True):
         node_id = row["ID"]
         node_positions[node_id] = (row["Longitude"], row["Latitude"])
         colors.append(DISTRICT_COLORS[district_mapping[node_id]])
-
-    print("******")
-    print("HERE")
-    print(node_positions)
 
     nx.draw(g, pos=node_positions, ax=ax, node_color=colors, with_labels=False)
 
@@ -440,7 +437,6 @@ failure_conditions = [0, 0, 0, 0, 0, 0]
 
 
 def is_valid_graph(g, district_pops):
-    print(failure_conditions)
     assigned_pop = 0
     for d in range(N_DISTRICTS):
         assigned_pop += district_pops[d]
@@ -466,21 +462,57 @@ def is_valid_graph(g, district_pops):
 
 
 # %%
-attempts = 0
-while True:
-    attempts += 1
-    g = read_graph("County_graph.pickle")
-    district_pops = create_districts(
-        g,
-        POPULATION_PER_DISTRICT,
-        district_start_node_fn,
-        most_adjacencies_neigh_order_fn,
-    )
-    print(attempts)
-    if not is_valid_graph(g, district_pops):
-        break
-print(failure_conditions)
-draw_graph(g, Counties)
-plt.show()
-plt.close()
+graph_array = []
+
+
+def process_graph():
+    attempts = 0
+    while True:
+        attempts += 1
+        g = read_graph("County_graph.pickle")
+        district_pops = create_districts(
+            g,
+            POPULATION_PER_DISTRICT,
+            district_start_node_fn,
+            most_adjacencies_neigh_order_fn,
+        )
+        print(attempts)
+        if not is_valid_graph(g, district_pops):
+            break
+    graph_array.append(g)
+
+
+# %%
+NUM_PROCESSES = 128
+NUM_THREADS_PER_PROCESS = 2
+
+processes = []
+
+for _ in range(NUM_PROCESSES):
+    process = multiprocessing.Process(target=process_graph)
+    threads = []
+
+    for _ in range(NUM_THREADS_PER_PROCESS):
+        thread = threading.Thread(target=process_graph)
+        threads.append(thread)
+
+    processes.append((process, threads))
+
+# start all processes and threads
+for process, threads in processes:
+    process.start()
+    for thread in threads:
+        thread.start()
+
+for process, threads in processes:
+    process.join()
+    for thread in threads:
+        thread.join()
+
+# %%
+for graph in graph_array:
+    draw_graph(graph, Counties)
+    plt.show()
+    plt.close()
+
 # %%
