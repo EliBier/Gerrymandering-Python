@@ -9,7 +9,7 @@ from scipy.sparse import lil_matrix
 
 # %%
 # Define the output file path
-output_file = "adjacency.csv"
+output_file = "adjacency_geoids.csv"
 
 # Load your GeoDataFrame
 data_path = Path("SBE_PRECINCTS_CENSUSBLOCKS_20210727")
@@ -23,21 +23,20 @@ adjacency_dict = {}
 
 # Define the batch size (number of polygons to process before saving progress)
 batch_size = 1000
+
+
 # %%
-
-
 # Define a function to save progress
 def save_progress(progress_dict, output_file):
     with open(output_file, "w", newline="") as csvfile:
-        fieldnames = ["id", "Polygon", "Adjacent_Polygons"]
+        fieldnames = ["Geoid20", "Adjacent_Geoids"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
-        for index, neighbors in progress_dict.items():
+        for geoid20, adjacent_geoids in progress_dict.items():
             writer.writerow(
                 {
-                    "id": gdf.loc[index, "id"],
-                    "Polygon": index,
-                    "Adjacent_Polygons": ", ".join(map(str, neighbors)),
+                    "Geoid20": geoid20,
+                    "Adjacent_Geoids": ", ".join(map(str, adjacent_geoids)),
                 }
             )
 
@@ -48,15 +47,21 @@ if Path(output_file).is_file():
     with open(output_file, "r") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            polygon_index = int(row["Polygon"])
-            adjacent_polygons = [int(x) for x in row["Adjacent_Polygons"].split(", ")]
-            adjacency_dict[polygon_index] = adjacent_polygons
+            geoid20 = row["Geoid20"]
+            adjacent_geoids = [x.strip() for x in row["Adjacent_Geoids"].split(",")]
+            adjacency_dict[geoid20] = adjacent_geoids
 
-# Get the last processed index or start from the beginning
-last_processed_index = max(adjacency_dict.keys(), default=-1)
+# Get the last processed geoid20 or start from the beginning
+last_processed_geoid20 = max(adjacency_dict.keys(), default=None)
 
 # Iterate through the GeoDataFrame starting from where it left off
-for index, row in gdf.iloc[last_processed_index + 1 :].iterrows():
+for index, row in gdf.iterrows():
+    geoid20 = row["geoid20"]
+
+    # Skip polygons that have already been processed
+    if geoid20 in adjacency_dict:
+        continue
+
     # Get the geometry of the current polygon
     geom = row["geometry"]
 
@@ -70,8 +75,8 @@ for index, row in gdf.iloc[last_processed_index + 1 :].iterrows():
     # Exclude the current polygon itself
     actual_neighbors = actual_neighbors[actual_neighbors.index != index]
 
-    # Store the adjacent polygons in the dictionary
-    adjacency_dict[index] = actual_neighbors.index.tolist()
+    # Store the adjacent geoids in the dictionary
+    adjacency_dict[geoid20] = actual_neighbors["geoid20"].tolist()
 
     # Save progress periodically
     if len(adjacency_dict) % batch_size == 0:
@@ -82,6 +87,7 @@ for index, row in gdf.iloc[last_processed_index + 1 :].iterrows():
 save_progress(adjacency_dict, output_file)
 
 print(f"Adjacency information saved to {output_file}")
+
 
 # %%
 import pandas as pd
