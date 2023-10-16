@@ -13,6 +13,7 @@ from queue import Queue
 import numpy as np
 import networkx as nx
 import pandas as pd
+import geopandas as gpd
 import random
 import time
 import matplotlib.pyplot as plt
@@ -50,7 +51,10 @@ DISTRICT_COLORS = {
 }
 # %%
 Blocks = pd.read_csv(data_path / "Blocks.csv")
-Blocks2020 = pd.read_csv(data_path / "Blocks2020.csv")
+Blocks2020_pd = pd.read_csv(data_path / "Blocks2020.csv")
+Blocks2020 = gpd.GeoDataFrame(
+    Blocks2020_pd, geometry=gpd.GeoSeries.from_wkt(Blocks2020_pd["geometry"])
+)
 Counties = pd.read_csv(data_path / "Counties.csv")
 CountiesAdjMat = np.genfromtxt(data_path / "CountiesAdjMat.csv", delimiter=",")
 # %%
@@ -59,6 +63,51 @@ POPULATION_PER_DISTRICT = round(TOTAL_POPULATION / N_DISTRICTS)
 # %%
 Blocks.sort_values(by="Longitude", ascending=True, inplace=True)
 seed = Blocks.iloc[0]
+
+
+# %%
+def assign_colors_to_dataframe(graph, dataframe, colors_dict):
+    for node in graph.nodes(data=True):
+        node_id, district = node
+        if node_id in dataframe["GEOID"].values:
+            # Find the index in the DataFrame where 'GEOID' matches the node ID
+            index = dataframe.index[dataframe["GEOID"] == node_id].tolist()[0]
+            # Get the color for the district from the colors_dict
+            color = colors_dict.get(district, "unknown")
+            # Update the 'color' column with the assigned color
+            dataframe.at[index, "color"] = color
+
+
+# %%
+def plot_geopandas_dataframe(dataframe, geometry_column, color_column):
+    """
+    Plots a GeoDataFrame using the specified geometry and color columns.
+
+    Parameters:
+    - dataframe: The GeoDataFrame to plot.
+    - geometry_column: The name of the column containing geometry (geometries must be provided as GeoJSON or WKT).
+    - color_column: The name of the column containing colors.
+
+    Returns:
+    - None (displays the plot).
+    """
+    if not isinstance(dataframe, gpd.GeoDataFrame):
+        raise ValueError("The input dataframe must be a GeoDataFrame.")
+
+    if geometry_column not in dataframe.columns:
+        raise ValueError(f"'{geometry_column}' not found in the dataframe columns.")
+
+    if color_column not in dataframe.columns:
+        raise ValueError(f"'{color_column}' not found in the dataframe columns.")
+
+    dataframe.plot(
+        column=color_column,
+        legend=True,
+        legend_kwds={"label": "Legend"},
+        cmap="viridis",
+    )
+    plt.title("Geospatial Plot")
+    plt.show()
 
 
 # %%
@@ -171,6 +220,7 @@ def init_nc_graph(Counties_df):
     return g
 
 
+# %%
 def init_nc_graph_blocks2020(Blocks2020_df):
     # Create a graph
     g = nx.Graph()
@@ -201,6 +251,7 @@ def init_nc_graph_blocks2020(Blocks2020_df):
     return g
 
 
+# %%
 def write_graph(g: nx.graph, path: Path):
     path = Path(path)
     nx.write_gpickle(g, path.stem + ".pickle")
@@ -240,7 +291,9 @@ def max_neigh_order_fn(g: nx.graph, neigh_iter: Iterable):
 g = init_nc_graph(Counties)
 draw_graph(g, Counties)
 write_graph(g, "county_graph.pickle")
-
+# %%
+g = init_nc_graph_blocks2020(Blocks2020)
+write_graph(g, "Block2020.pickle")
 # %%
 
 
@@ -528,7 +581,7 @@ def process_graph():
     attempts = 0
     while True:
         attempts += 1
-        g = read_graph("County_graph.pickle")
+        g = read_graph("Block2020.pickle")
         district_pops = create_districts(
             g,
             POPULATION_PER_DISTRICT,
@@ -542,7 +595,7 @@ def process_graph():
 
 
 # %%
-NUM_PROCESSES = 128
+NUM_PROCESSES = 32
 NUM_THREADS_PER_PROCESS = 2
 
 processes = []
@@ -570,8 +623,7 @@ for process, threads in processes:
 
 # %%
 for graph in graph_array:
-    draw_graph(graph, Counties)
-    plt.show()
-    plt.close()
+    assign_colors_to_dataframe(g, Blocks2020, DISTRICT_COLORS)
+    plot_geopandas_dataframe(Blocks2020, "geometry", "color")
 
 # %%
