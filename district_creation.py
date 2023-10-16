@@ -203,7 +203,6 @@ def init_nc_graph(Counties_df):
             ]
 
             for adj in adjacent_counties:
-                print(adj)
                 g.add_edge(county_id, adj)
 
     init_district_attr = {}
@@ -229,7 +228,6 @@ def init_nc_graph_blocks2020(Blocks2020_df):
     for index, row in Blocks2020_df.iterrows():
         block_id = row["GEOID"]
         adjacent_blocks_str = row["ADJ_GEOIDS"]
-        DECENNIALP = row["DECENNIALP"]
 
         if adjacent_blocks_str:
             adjacent_blocks = [int(x.strip()) for x in adjacent_blocks_str.split(",")]
@@ -247,6 +245,8 @@ def init_nc_graph_blocks2020(Blocks2020_df):
         init_district_attr[block_id]["latitude"] = float(row["INTPTLAT"])
         init_district_attr[block_id]["longitude"] = float(row["INTPTLON"])
         init_district_attr[block_id]["county"] = row["DECENNIALP"].split(", ")[-2]
+
+    nx.set_node_attributes(g, init_district_attr)
 
     return g
 
@@ -625,5 +625,4 @@ for process, threads in processes:
 for graph in graph_array:
     assign_colors_to_dataframe(g, Blocks2020, DISTRICT_COLORS)
     plot_geopandas_dataframe(Blocks2020, "geometry", "color")
-
 # %%
