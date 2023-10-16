@@ -50,6 +50,7 @@ DISTRICT_COLORS = {
 }
 # %%
 Blocks = pd.read_csv(data_path / "Blocks.csv")
+Blocks2020 = pd.read_csv(data_path / "Blocks2020.csv")
 Counties = pd.read_csv(data_path / "Counties.csv")
 CountiesAdjMat = np.genfromtxt(data_path / "CountiesAdjMat.csv", delimiter=",")
 # %%
@@ -170,6 +171,36 @@ def init_nc_graph(Counties_df):
     return g
 
 
+def init_nc_graph_blocks2020(Blocks2020_df):
+    # Create a graph
+    g = nx.Graph()
+
+    # Iterate through the rows of the DataFrame
+    for index, row in Blocks2020_df.iterrows():
+        block_id = row["GEOID"]
+        adjacent_blocks_str = row["ADJ_GEOIDS"]
+        DECENNIALP = row["DECENNIALP"]
+
+        if adjacent_blocks_str:
+            adjacent_blocks = [int(x.strip()) for x in adjacent_blocks_str.split(",")]
+
+            for adj in adjacent_blocks:
+                g.add_edge(block_id, adj)
+
+    # Initialize district attributes
+    init_district_attr = {}
+    for index, row in Blocks2020_df.iterrows():
+        block_id = row["GEOID"]
+        init_district_attr[block_id] = {}
+        init_district_attr[block_id]["district"] = -1
+        init_district_attr[block_id]["population"] = int(row["DECENNIA_1"])
+        init_district_attr[block_id]["latitude"] = float(row["INTPTLAT"])
+        init_district_attr[block_id]["longitude"] = float(row["INTPTLON"])
+        init_district_attr[block_id]["county"] = row["DECENNIALP"].split(", ")[-2]
+
+    return g
+
+
 def write_graph(g: nx.graph, path: Path):
     path = Path(path)
     nx.write_gpickle(g, path.stem + ".pickle")
@@ -225,56 +256,52 @@ def get_logistic_exit(current_pop):
 
 
 # %%
-def district_filling_iterative(
-    g: nx.graph,
-    d: int,
-    n: int,
-    district_pops: dict,
-    target_pop: int,
-    neigh_order_fn: Callable,
-):
-    # add maximum allowable and minimum exit populations as arguments at some
+def district_filling_iterative(g, d, n, district_pops, target_pop, neigh_order_fn):
     """
-    iterative function using county filling method to define district.
+    Iteratively assign nodes to districts using the county filling method.
 
     Arguments
     ---------
-    g: nx.graph
-        Networkx graph
+    g: nx.Graph
+        Networkx graph.
     d: int
-        District index
+        District index.
     n: int
-        Node index (this is the seed node)
+        Node index (seed node).
     district_pops: dict
-        Dictionary holding the current district populations
+        Dictionary holding current district populations.
     target_pop: int
-        Target population for each district
+        Target population for each district.
     neigh_order_fn: Callable
-        Function for ordering the neighbor list. Argument to this function is
-        the graph and iterator from g.neighbors(n).
+        Function for ordering the neighbor list.
 
     """
-    # Optimization (Add all blocks within the current county if the current county would not cause overage)
-    queue = []
-    queue.append(n)
-    while len(queue) > 0:
+    # Initialize a queue with the seed node
+    queue = set()
+    queue.add(n)
+
+    while queue:
         current_node = queue.pop()
+
         if g.nodes[current_node]["district"] != -1:
             raise Exception("Only input undeclared district")
 
-        # Explain later
+        # Check if the district population exceeds the limits
         if district_pops[d] > MIN_DISTRICT_POP:
             if district_pops[d] > MAX_DISTRICT_POP:
                 break
 
+        # Assign the current node to the district and update its population
         g.nodes[current_node]["district"] = d
         district_pops[d] += g.nodes[current_node]["population"]
 
+        # Process neighbor nodes
         for neigh in neigh_order_fn(g, g.neighbors(current_node), d):
-            # Needs to be faster way to determine if a node is already in a queue
-            if neigh in queue or neigh == None:
+            # Check if the neighbor is already in the queue or if it's None
+            if neigh in queue or neigh is None:
                 continue
             if g.nodes[neigh]["district"] == -1:
+                # Check if adding the neighbor would exceed the district population limit
                 if g.nodes[neigh]["population"] > (MAX_DISTRICT_POP - district_pops[d]):
                     continue
                 else:
@@ -386,24 +413,56 @@ def random_start_node_fn(g):
 
 
 # %%
-def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
-    neigh_list = list(neigh_iter)
-    valid_node_list = [None]
-    adj_list = [-1]
-    for n in neigh_list:
-        ### Cannot add if already assigned
-        if g.nodes[n]["district"] != -1:
-            continue
-        valid_node_list.append(n)
-        adj = 0
-        temp_neigh_list = list(g.neighbors(n))
-        for temp_n in temp_neigh_list:
-            if g.nodes[temp_n]["district"] == d:
-                adj += 1
-        adj_list.append(adj)
-    max_adj = np.max(adj_list)
-    max_idx = np.where(np.array(adj_list) == max_adj)[0]
-    yield valid_node_list[np.random.choice(max_idx, size=(1,))[0]]
+# def most_adjacencies_neigh_order_fn(g: nx.graph, neigh_iter: Iterable, d: int):
+#     neigh_list = list(neigh_iter)
+#     valid_node_list = [None]
+#     adj_list = [-1]
+#     for n in neigh_list:
+#         ### Cannot add if already assigned
+#         if g.nodes[n]["district"] != -1:
+#             continue
+#         valid_node_list.append(n)
+#         adj = 0
+#         temp_neigh_list = list(g.neighbors(n))
+#         for temp_n in temp_neigh_list:
+#             if g.nodes[temp_n]["district"] == d:
+#                 adj += 1
+#         adj_list.append(adj)
+#     max_adj = np.max(adj_list)
+#     max_idx = np.where(np.array(adj_list) == max_adj)[0]
+#     yield valid_node_list[np.random.choice(max_idx, size=(1,))[0]]
+
+
+def most_adjacencies_neigh_order_fn(g, neigh_iter, d, probability=0.2):
+    max_adj_count = -1
+    best_neighbors = []
+    less_adj_neighbors = []
+
+    for n in neigh_iter:
+        if g.nodes[n]["district"] == -1:
+            adj_count = sum(
+                1 for neighbor in g.neighbors(n) if g.nodes[neighbor]["district"] == d
+            )
+
+            if adj_count > max_adj_count:
+                max_adj_count = adj_count
+                best_neighbors = [n]
+                less_adj_neighbors = []
+            elif adj_count == max_adj_count:
+                best_neighbors.append(n)
+            elif adj_count == 1 and random.random() < probability:
+                best_neighbors = [
+                    n
+                ]  # Automatically accept a neighbor with no other adjacencies
+            elif random.random() < probability:
+                less_adj_neighbors.append(n)
+
+    if less_adj_neighbors:
+        return random.choice(less_adj_neighbors)
+    elif best_neighbors:
+        return random.choice(best_neighbors)
+    else:
+        return None  # No valid neighbors found
 
 
 # %%
