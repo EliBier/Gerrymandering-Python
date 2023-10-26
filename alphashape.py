@@ -61,7 +61,11 @@ def alphashape(pos, alpha=1):
     count_edges = {}
     delete_edges = {}
     all_edges = np.vstack(
-        [keep_tri[:, [0, 1]], keep_tri[:, [0, 2]], keep_tri[:, [1, 2]],]
+        [
+            keep_tri[:, [0, 1]],
+            keep_tri[:, [0, 2]],
+            keep_tri[:, [1, 2]],
+        ]
     )
     all_edges = list(map(tuple, all_edges))
     for edge in all_edges:
@@ -108,7 +112,10 @@ def get_graph_point_clouds(g, pos, attribute="county"):
 
 
 def get_graph_alphashapes(
-    g, pos, attribute="county", alpha=1,
+    g,
+    pos,
+    attribute="county",
+    alpha=1,
 ):
     point_clouds, _ = get_graph_point_clouds(g, pos)
     pos_dict = {}
