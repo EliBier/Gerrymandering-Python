@@ -91,6 +91,21 @@ g = init_nc_graph_blocks2020(Blocks2020)
 
 
 # %%
+def reset_district_assignments(graph):
+    """
+    Reset the district assignments for each block in the graph to -1.
+
+    Parameters:
+    - graph (networkx.Graph): The graph containing current district assignments.
+
+    Returns:
+    - None (modifies the graph in-place).
+    """
+    for block in graph.nodes:
+        graph.nodes[block]["district"] = -1
+
+
+# %%
 # Function to find the closest district for a block
 def find_closest_district(block_id, district_seeds, g):
     block_coords = (g.nodes[block_id]["latitude"], g.nodes[block_id]["longitude"])
@@ -144,27 +159,34 @@ def assign_blocks_to_districts(g, district_seeds):
 
 
 # %%
-# Function to compute the total population of each district
-def compute_district_populations(g, num_districts):
-    district_populations = [0] * num_districts
-    for block in g.nodes:
-        district = g.nodes[block]["district"]
-        population = g.nodes[block]["population"]
-        district_populations[district] += population
-    return district_populations
-
-
-# %%
-
-
 # Function to compute the population imbalance score
 def compute_population_imbalance(district_populations):
-    max_pop = max(district_populations)
-    min_pop = min(district_populations)
-    return max_pop - min_pop
+    # Calculate the average population per district
+    avg_population = sum(district_populations) / len(district_populations)
+
+    # Calculate the maximum difference in population between districts
+    max_difference = max(district_populations) - min(district_populations)
+
+    # Define a weight for the population balance factor (you can adjust this weight as needed)
+    weight_population_balance = 0.9  # Adjust this value as needed
+
+    # Calculate the imbalance score as a weighted sum of max difference and population balance factor
+    imbalance_score = weight_population_balance * max_difference + (
+        1 - weight_population_balance
+    ) * abs(avg_population - max_difference)
+
+    return imbalance_score
 
 
 # %%
+# Function to compute the total population of each district
+def compute_district_populations(graph, num_districts):
+    district_populations = [0] * num_districts
+    for block in graph.nodes:
+        district = graph.nodes[block]["district"]
+        population = graph.nodes[block]["population"]
+        district_populations[district] += population
+    return district_populations
 
 
 # Function to swap two block assignments
@@ -176,114 +198,93 @@ def swap_blocks(g, block1, block2):
 
 
 # %%
-def compute_imbalance_partial(args):
-    g, num_districts, block1, block2 = args
-    swap_blocks(g, block1, block2)
-    new_district_populations = compute_district_populations(g, num_districts)
-    new_score = compute_population_imbalance(new_district_populations)
-    return new_score
+def simulated_annealing(
+    graph,
+    num_districts,
+    max_iterations=1000,
+    batch_size_1=1000,
+    batch_size_2=10000,
+    score_threshold_1=500000,
+    score_threshold_2=1000000,
+):
+    current_district_populations = compute_district_populations(graph, num_districts)
+    initial_imbalance = compute_population_imbalance(current_district_populations)
+    previous_population_stats = dict()  # Initialize previous population statistics
 
+    for iteration in range(max_iterations):
+        # Select a random district with a population greater than the average
+        valid_districts = [
+            district
+            for district in range(num_districts)
+            if current_district_populations[district] > POPULATION_PER_DISTRICT
+        ]
+        if not valid_districts:
+            print("BROKEN1")
+            break
 
-# %%
-# Simulated Annealing to balance populations with block swapping in chunks as batches
-def simulated_annealing(g, num_districts):
-    # Initial setup
-    T = 10000.0  # Initial temperature
-    T_min = 0.01  # Minimum temperature
-    alpha = 0.95  # Cooling rate
+        source_district = random.choice(valid_districts)
 
-    current_district_populations = compute_district_populations(g, num_districts)
-    current_score = compute_population_imbalance(current_district_populations)
-    best_score = current_score
+        # Find blocks on the boundary of the source district
+        boundary_blocks = []
+        for block in graph.nodes:
+            if graph.nodes[block]["district"] == source_district:
+                for neighbor in graph.neighbors(block):
+                    if graph.nodes[neighbor]["district"] != source_district:
+                        boundary_blocks.append(block)
+                        break
 
-    while T > T_min:
-        imbalance_threshold = 100000  # Population imbalance threshold
-        swaps_in_chunk = 0  # Track the number of swaps in the current chunk
+        if not boundary_blocks:
+            print("BROKEN2")
+            break
 
-        while current_score > imbalance_threshold and swaps_in_chunk < 10000:
-            # Create a dictionary to store contiguous block groups for each district
-            district_block_groups = {district: [] for district in range(num_districts)}
-            for block in g.nodes:
-                district = g.nodes[block]["district"]
-                district_block_groups[district].append(block)
+        # Determine batch size based on the current imbalance score
+        score = initial_imbalance
+        if score > score_threshold_2:
+            swap_batch_size = batch_size_2
+        elif score > score_threshold_1:
+            swap_batch_size = batch_size_1
+        else:
+            swap_batch_size = 1
 
-            # Define the batch size based on the population imbalance
-            if current_score > 1000000:
-                batch_size = min(10000, len(district_block_groups[0]))
-            else:
-                batch_size = min(1000, len(district_block_groups[0]))
+        # Perform swaps in batches
+        for _ in range(swap_batch_size):
+            # Randomly select a boundary block
+            block_to_swap = random.choice(boundary_blocks)
 
-            # Find contiguous block groups that share a boundary with the district they're joining
-            valid_groups = [
-                group
-                for group in district_block_groups.values()
-                if any(
-                    g.nodes[block]["district"]
-                    != list(group)[0]  # Use list(group) instead of group[0]
-                    for block in group
-                    for n in g.neighbors(block)
-                )
+            # Find the neighboring districts of the selected block
+            neighbor_districts = set(
+                graph.nodes[neighbor]["district"]
+                for neighbor in graph.neighbors(block_to_swap)
+            )
+
+            # Calculate the new population balance if the block is swapped
+            new_district_populations = current_district_populations.copy()
+            new_district_populations[source_district] -= graph.nodes[block_to_swap][
+                "population"
             ]
+            for neighbor_district in neighbor_districts:
+                new_district_populations[neighbor_district] += graph.nodes[
+                    block_to_swap
+                ]["population"]
 
-            if not valid_groups:
-                # If no valid groups are found, fall back to random selection
-                valid_groups = list(district_block_groups.values())
+            new_imbalance = compute_population_imbalance(new_district_populations)
 
-            # Randomly select a contiguous block group
-            contiguous_group = random.choice(valid_groups)
-            if len(contiguous_group) >= batch_size:
-                block_ids_to_swap = random.sample(contiguous_group, batch_size)
-            else:
-                # Handle the case where there are fewer elements in the group than the batch size
-                block_ids_to_swap = list(
-                    contiguous_group
-                )  # Sample all available elements
+            # Accept the swap if it reduces population imbalance
+            if new_imbalance < initial_imbalance:
+                initial_imbalance = new_imbalance
+                current_district_populations = new_district_populations
 
-            for block_id in block_ids_to_swap:
-                # Find the neighbors of the block
-                neighbors = list(g.neighbors(block_id))
-                if neighbors:
-                    # Swap the block assignment with one of its neighbors
-                    neighbor_id = random.choice(neighbors)
-                    swap_blocks(g, block_id, neighbor_id)
+                # Perform the block swap
+                target_district = random.choice(list(neighbor_districts))
+                graph.nodes[block_to_swap]["district"] = target_district
 
-            # Compute new populations and score after swapping the entire batch
-            new_district_populations = compute_district_populations(g, num_districts)
-            new_score = compute_population_imbalance(new_district_populations)
+        if iteration % 50 == 0:
+            print(f"Iterations Completed: {iteration}")
+            previous_population_stats = print_and_plot_district_populations(
+                graph, num_districts, DISTRICT_COLORS, previous_population_stats
+            )
 
-            # Calculate the acceptance probability
-            acceptance_probability = np.exp((current_score - new_score) / T)
-
-            if new_score < current_score or random.random() < acceptance_probability:
-                current_score = new_score
-                swap_status = "Accepted"
-            else:
-                # Revert the entire batch if not accepted
-                for block_id in block_ids_to_swap:
-                    # Find the neighbors of the block
-                    neighbors = list(g.neighbors(block_id))
-                    if neighbors:
-                        # Swap the block assignment with one of its neighbors
-                        neighbor_id = random.choice(neighbors)
-                        swap_blocks(g, block_id, neighbor_id)
-                swap_status = "Rejected"
-
-            # Update best score
-            best_score = min(best_score, current_score)
-
-            # Increment the number of swaps in the current chunk
-            swaps_in_chunk += len(block_ids_to_swap)
-
-        # Calculate the population imbalance
-        population_imbalance = compute_population_imbalance(new_district_populations)
-
-        # Print population imbalance after each batch of swaps
-        print(f"Population Imbalance After Batch: {population_imbalance}")
-
-        # Cool the temperature
-        T *= alpha
-
-    return best_score
+    print(f"Simulated Annealing completed in {iteration} iterations.")
 
 
 # %%
@@ -405,10 +406,6 @@ def plot_geopandas_dataframe(dataframe, geometry_column, color_column):
 
 
 # %%
-import geopandas as gpd
-import matplotlib.pyplot as plt
-
-
 def plot_top_districts(dataframe, geometry_column, color_column, n=3):
     """
     Plots the top N districts with the greatest population in a GeoDataFrame using the color from the color column.
@@ -451,9 +448,16 @@ def plot_top_districts(dataframe, geometry_column, color_column, n=3):
 
 
 # %%
-# Define a function to calculate and print the population of each district and produce a bar graph with custom colors
-def print_and_plot_district_populations(g, num_districts, DISTRICT_COLORS):
+# Define a function to calculate and print the population of each district as a percentage of the total population
+def print_and_plot_district_populations(
+    g, num_districts, DISTRICT_COLORS, previous_population_stats=None
+):
     district_populations = [0] * num_districts
+    total_population = 0  # Initialize total population
+
+    # Create a dictionary to keep track of the population changes for each district
+    population_changes = {}
+
     for block in g.nodes:
         district = g.nodes[block]["district"]
         population = g.nodes[block]["population"]
@@ -461,6 +465,8 @@ def print_and_plot_district_populations(g, num_districts, DISTRICT_COLORS):
         # Check if the assigned district is within the valid range
         if 0 <= district < num_districts:
             district_populations[district] += population
+            total_population += population
+
         else:
             print(f"Warning: Block {block} has an invalid district ID {district}")
 
@@ -469,23 +475,48 @@ def print_and_plot_district_populations(g, num_districts, DISTRICT_COLORS):
         range(num_districts), key=lambda x: -district_populations[x]
     )
 
-    # Print and plot the populations in descending order with custom colors
+    # Calculate and print the population changes
     for i, district_id in enumerate(sorted_district_indices):
+        percentage = (district_populations[district_id] / total_population) * 100
+
+        # Check if the population increased, decreased, or stayed the same
+        change_symbol = "="
+        if previous_population_stats:
+            prev_population = previous_population_stats.get(district_id, None)
+            if prev_population is not None:
+                if district_populations[district_id] > prev_population:
+                    change_symbol = "+"
+                elif district_populations[district_id] < prev_population:
+                    change_symbol = "-"
+            # Update the previous population statistics dictionary
+            previous_population_stats[district_id] = district_populations[district_id]
+
         print(
-            f"District {district_id}: Population = {district_populations[district_id]}"
+            f"District {district_id}: Population = {district_populations[district_id]}, Percentage of Total = {percentage:.2f}%, Change: {change_symbol}"
         )
+
+        # Update the population change dictionary
+        population_changes[district_id] = change_symbol
 
     # Create a bar graph with custom colors
     colors = [DISTRICT_COLORS[i] for i in sorted_district_indices]
+    percentages = [
+        (district_populations[i] / total_population) * 100
+        for i in sorted_district_indices
+    ]
     plt.bar(
         range(num_districts),
-        [district_populations[i] for i in sorted_district_indices],
+        percentages,
         color=colors,
     )
     plt.xlabel("District")
-    plt.ylabel("Population")
-    plt.title("District Populations (Descending Order)")
+    plt.ylabel("Percentage of Total Population")
+    plt.title(
+        "District Populations as Percentages of Total Population (Descending Order)"
+    )
     plt.show()
+
+    return previous_population_stats
 
 
 # %%
@@ -510,6 +541,7 @@ assign_blocks_to_districts(g, district_seeds)
 # Step 3: Draw districts
 assign_colors_to_dataframe(g, Blocks2020, DISTRICT_COLORS)
 plot_geopandas_dataframe(Blocks2020, "geometry", "color")
+print_and_plot_district_populations(g, 14, DISTRICT_COLORS)
 # %%
 # Step 4: Anneal To Get Correct Population
 simulated_annealing(g, 14)
