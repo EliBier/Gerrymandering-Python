@@ -159,7 +159,6 @@ def assign_blocks_to_districts(g, district_seeds):
 
 
 # %%
-# Function to compute the population imbalance score
 def compute_population_imbalance(district_populations):
     # Calculate the average population per district
     avg_population = sum(district_populations) / len(district_populations)
@@ -202,14 +201,13 @@ def simulated_annealing(
     graph,
     num_districts,
     max_iterations=1000,
-    batch_size_1=1000,
-    batch_size_2=10000,
-    score_threshold_1=500000,
-    score_threshold_2=1000000,
+    min_batch_size=100,
 ):
+    score_threshold_1 = 100000
+    score_threshold_2 = 300000
+    Score_threshold_3 = 1000000
     current_district_populations = compute_district_populations(graph, num_districts)
     initial_imbalance = compute_population_imbalance(current_district_populations)
-    previous_population_stats = dict()  # Initialize previous population statistics
 
     for iteration in range(max_iterations):
         # Select a random district with a population greater than the average
@@ -240,13 +238,13 @@ def simulated_annealing(
         # Determine batch size based on the current imbalance score
         score = initial_imbalance
         if score > score_threshold_2:
-            swap_batch_size = batch_size_2
+            swap_batch_size = min_batch_size * 100
         elif score > score_threshold_1:
-            swap_batch_size = batch_size_1
+            swap_batch_size = min_batch_size * 10
         else:
-            swap_batch_size = 1
+            swap_batch_size = min_batch_size * 100
 
-        # Perform swaps in batches
+        # Check if reassigning blocks to districts is more beneficial than swapping
         for _ in range(swap_batch_size):
             # Randomly select a boundary block
             block_to_swap = random.choice(boundary_blocks)
@@ -257,7 +255,7 @@ def simulated_annealing(
                 for neighbor in graph.neighbors(block_to_swap)
             )
 
-            # Calculate the new population balance if the block is swapped
+            # Calculate the new population balance if the block is reassigned
             new_district_populations = current_district_populations.copy()
             new_district_populations[source_district] -= graph.nodes[block_to_swap][
                 "population"
@@ -269,20 +267,17 @@ def simulated_annealing(
 
             new_imbalance = compute_population_imbalance(new_district_populations)
 
-            # Accept the swap if it reduces population imbalance
+            # If reassigning the block reduces imbalance more, then reassign it
             if new_imbalance < initial_imbalance:
                 initial_imbalance = new_imbalance
                 current_district_populations = new_district_populations
-
-                # Perform the block swap
-                target_district = random.choice(list(neighbor_districts))
-                graph.nodes[block_to_swap]["district"] = target_district
+                graph.nodes[block_to_swap]["district"] = random.choice(
+                    list(neighbor_districts)
+                )
 
         if iteration % 50 == 0:
             print(f"Iterations Completed: {iteration}")
-            previous_population_stats = print_and_plot_district_populations(
-                graph, num_districts, DISTRICT_COLORS, previous_population_stats
-            )
+            print_and_plot_district_populations(graph, num_districts, DISTRICT_COLORS)
 
     print(f"Simulated Annealing completed in {iteration} iterations.")
 
@@ -544,7 +539,34 @@ plot_geopandas_dataframe(Blocks2020, "geometry", "color")
 print_and_plot_district_populations(g, 14, DISTRICT_COLORS)
 # %%
 # Step 4: Anneal To Get Correct Population
-simulated_annealing(g, 14)
+# Define a threshold for population balance
+population_balance_threshold = 1000  # Adjust as needed
+
+# Initialize variables
+iterations = 0
+
+while True:
+    # Run simulated annealing
+    simulated_annealing(g, 14, 100)  # You may need to pass other parameters as well
+
+    # Calculate the current population imbalance
+    current_district_populations = compute_district_populations(g, 14)
+    max_difference = max(current_district_populations) - min(
+        current_district_populations
+    )
+
+    # Check if the population balance threshold is met
+    if max_difference <= population_balance_threshold:
+        break  # Exit the loop if the threshold is met
+
+    iterations += 1
+
+    # Optionally, you can add a condition to limit the number of iterations to avoid infinite loops
+    if iterations >= 1000:
+        print("Reached the maximum number of iterations.")
+        break
+
+print(f"Simulated Annealing completed in {iterations} iterations.")
 # %%
 # Step 5: Draw districts
 assign_colors_to_dataframe(g, Blocks2020, DISTRICT_COLORS)

@@ -1,6 +1,4 @@
-
 # %%
-from __future__ import division, print_function
 from pathlib import Path
 import numpy as np
 import geopandas as gpd
@@ -9,7 +7,9 @@ import numpy as np
 import geopandas as gpd
 import pandas as pd
 import random
-#%%
+from tqdm import tqdm
+
+# %%
 data_path = Path("data")
 N_DISTRICTS = 14
 MIN_DISTRICT_POP = 400000
@@ -30,135 +30,239 @@ DISTRICT_COLORS = {
     11: "#dcbeff",
     12: "#9A6324",
     13: "#fffac8",
-    14: "#800000",
 }
-#%%
-Blocks = gpd.read_file(data_path / "Blocks.geojson", index = False)
-#%%
-def extract_data(geo_df, population_col='Population', lat_col='Latitude', lon_col='Longitude', id_col='GEOID'):
-    """
-    Extracts data from a GeoDataFrame and formats it for the weighted_kmeans function.
-
-    Parameters:
-    - geo_df: GeoDataFrame containing the data.
-    - population_col: Column name for population data.
-    - lat_col: Column name for latitude data.
-    - lon_col: Column name for longitude data.
-    - id_col: Column name for the identifier (GEOID).
-
-    Returns:
-    - data: List of data points, each represented as a list of coordinates [population, latitude, longitude, GEOID].
-    """
-    data = []
-    for index, row in geo_df.iterrows():
-        population = row[population_col]
-        latitude = row[lat_col]
-        longitude = row[lon_col]
-        geoid = row[id_col]
-        data.append([population, latitude, longitude, geoid])
-
-    return data
-
-def euclidean(a, b):
-    return np.linalg.norm(np.asarray(a) - np.asarray(b))
-
-def has_converged(mu, old_mu, max_diff):
-    if old_mu is not None:
-        diff = 0
-        for i in range(len(mu)):
-            diff += euclidean(mu[i], old_mu[i])
-        diff /= len(mu)
-        return diff < max_diff
-    return False
-
-def cluster_points(data, mu, alpha):
-    clusters = {i: [] for i in range(len(mu))}
-    counts_per_cluster = [0 for _ in range(len(mu))]
-
-    for index, x in enumerate(data):
-        bestmukey = min([(i, alpha * euclidean(x, mu[i])) for i in range(len(mu))],
-                        key=lambda t: t[1])[0]
-        clusters[bestmukey].append(x)
-        counts_per_cluster[bestmukey] += 1
-
-    return clusters, counts_per_cluster
-
-def reevaluate_centers(data, cluster_indices, k):
-    new_mu = []
-    for cluster_index in range(k):
-        cluster_points = cluster_indices[cluster_index]
-        new_mu.append(np.mean(cluster_points, axis=0))
-    return new_mu
-
-def update_scaling_factors(mu, alpha, beta, scaling_factor):
-    scaling_factors = np.asarray([len(cluster)**alpha for cluster in mu])
-    scaling_factors /= np.sum(scaling_factors)
-    scaling_factor = (1 - beta) * scaling_factor + beta * scaling_factors
-    return scaling_factor
 # %%
+Data = gpd.read_file(data_path / "Blocks.geojson", index=False)
+# %%
+Blocks = Data[["GEOID", "Population", "Latitude", "Longitude"]]
+Blocks["GEOID"] = Blocks["GEOID"].astype(str)
+Blocks["County"] = Blocks["GEOID"].str[2:5]
+Blocks["Cluster"] = -1
+# %%
+Clusters = pd.DataFrame(columns=["Latitude", "Longitude"])
+Scaling_Factors = {key: 1 for key in range(N_DISTRICTS)}
 
-def weighted_kmeans(data, k, alpha=0, beta=0, max_runs=200, max_diff=0.001, verbose=False, mu=None, dist=euclidean):
-    if mu is None:
-        mu = random.sample(data, k)
-    old_mu = None
-    scaling_factor = np.ones((k)) / k
-    counts_per_cluster = [0 for _ in range(k)]
-    runs = 0
-    while not has_converged(mu, old_mu, max_diff) and runs < max_runs:
-        if verbose:
-            print('\nRun: ' + str(runs) + ', alpha: ' + str(alpha) + ', beta: ' + str(beta))
-        old_mu = mu
-        cluster_indices, counts_per_cluster = cluster_points(data, mu, alpha)
-        mu = reevaluate_centers(data, cluster_indices, k)
-        scaling_factor = update_scaling_factors(mu, alpha, beta, scaling_factor)
-        runs += 1
-    return cluster_indices
-#%%
-def plot_districts(result_clusters, geo_df, title='Clustered Districts'):
-    """
-    Plots the clustered districts on a map with a legend.
 
-    Parameters:
-    - result_clusters: Dictionary containing cluster indices for each data point.
-    - geo_df: GeoDataFrame containing the geometries for each data point.
-    - title: Title for the plot (default is 'Clustered Districts').
-    """
-    # Create a copy of the GeoDataFrame to avoid modifying the original
-    plot_df = geo_df.copy()
+# %%
+def Distance_Haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0  # Earth radius in kilometers
 
-    # Add a new column 'Cluster' to store the cluster indices
-    plot_df['Cluster'] = [result_clusters[i] for i in range(len(plot_df))]
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
 
-    # Plot the districts using GeoDataFrame.plot() with 'Cluster' as color
-    fig, ax = plt.subplots(figsize=(10, 8))
-    plot_df.plot(column='Cluster', cmap=DISTRICT_COLORS, linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+    # Calculate differences in latitude and longitude
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
 
-    # Create a legend
-    handles = []
-    labels = []
-    for cluster_id in np.unique(result_clusters.values()):
-        cluster_data = plot_df[plot_df['Cluster'] == cluster_id]
-        cluster_population = cluster_data['Population'].sum()
+    # Haversine formula
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    distance = R * c
 
-        # Add legend entry for each cluster with color, ID, and population
-        handle = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=ax.get_cmap(DISTRICT_COLORS)(cluster_id), markersize=10)
-        label = f'Cluster {cluster_id}\nPopulation: {cluster_population}'
-        handles.append(handle)
-        labels.append(label)
+    return distance
 
-    ax.legend(handles, labels, title='Cluster Legend', loc='upper left', bbox_to_anchor=(1, 1))
 
-    # Customize the plot
-    ax.set_title(title, fontdict={'fontsize': '15', 'fontweight': '3'})
-    ax.set_axis_off()
+# %%
+def Distance_Euclidean(lat1, lon1, lat2, lon2):
+    # Euclidean distance formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    distance = np.sqrt(dlat**2 + dlon**2)
+    return distance
 
-    # Show the plot
+
+# %%
+def select_seed_blocks(df, n):
+    # Ensure 'GEOID' column exists and is of type str
+    if "GEOID" not in df.columns or df["GEOID"].dtype != "O":
+        raise ValueError("The DataFrame must have a 'GEOID' column of type string.")
+
+    # Randomly select 14 unique counties
+    selected_counties = random.sample(list(Blocks["County"].unique()), n)
+
+    # Select one random row from each of the selected 14 counties
+    selected_rows = (
+        df[df["GEOID"].str[2:5].isin(selected_counties)]
+        .groupby("County", group_keys=False)
+        .apply(lambda x: x.sample(1))
+    )
+
+    selected_rows = selected_rows.reset_index(drop=True)
+    selected_coordinates = selected_rows[["Latitude", "Longitude"]]
+    return selected_coordinates
+
+
+# %%
+def Calculate_Scaling_Factors(df, factors_dict, alpha, beta):
+    old_factors = factors_dict
+    # Get the populations of each of the clusters
+    populations_by_cluster = df.groupby("Cluster").sum()
+    populations_by_cluster = populations_by_cluster[["Population"]]
+
+    # For each cluster raise its population by alpha and store it
+    for index, population in populations_by_cluster.iterrows():
+        factors_dict[index] = population["Population"] ** alpha
+
+    total_sum = sum(factors_dict.values())
+
+    # Divide each of the cluster populations by the sum of the scaling factors
+    for key, value in factors_dict.items():
+        factors_dict[key] = value / total_sum
+
+    # The scaling_factors should now sum to one (This might be slightly off because of floating point operations)
+    # print(sum(factors_dict.values()))
+
+    # apply time-averaging on the scaling factor
+    for key, value in factors_dict.items():
+        factors_dict[key] = (1 - beta) * old_factors[key] + (beta) * value
+
+    # The scaling factors should still sum to about one
+    # print(sum(factors_dict.values()))
+
+    return factors_dict
+
+
+# %%
+def reevaluate_centers(Blocks, Clusters):
+    new_Clusters = pd.DataFrame(columns=["Latitude", "Longitude"])
+    mean_coordinates = (
+        Blocks.groupby("Cluster")[["Latitude", "Longitude"]].mean().reset_index()
+    )
+    new_Clusters = mean_coordinates[["Latitude", "Longitude"]]
+    return new_Clusters
+
+
+# %%
+def Cluster_Points(
+    Blocks,
+    Clusters,
+    Scaling_Factors,
+    N_DISTRICTS,
+    distance_type="euclidean",
+    alpha=0.5,
+    beta=0.1,
+):
+    # If clusters are empty (meaning that initial points haven't been chosen) choose initial points
+    if Clusters.empty:
+        Clusters = pd.concat([Clusters, select_seed_blocks(Blocks, N_DISTRICTS)])
+
+    ################################################################################
+    # FIRST CREATE CLUSTERS USING K-MODES ##########################################
+    ################################################################################
+
+    for block_index, block in tqdm(
+        Blocks.iterrows(), total=len(Blocks), desc="Clustering Progress"
+    ):
+        distance = {}
+        for cluster_index, cluster in Clusters.iterrows():
+            if distance_type == "haversine":
+                distance[cluster_index] = (
+                    Distance_Haversine(
+                        block["Latitude"],
+                        block["Longitude"],
+                        Clusters.at[cluster_index, "Latitude"],
+                        Clusters.at[cluster_index, "Longitude"],
+                    )
+                    * Scaling_Factors[cluster_index]
+                )
+            elif distance_type == "euclidean":
+                distance[cluster_index] = (
+                    Distance_Euclidean(
+                        block["Latitude"],
+                        block["Longitude"],
+                        Clusters.at[cluster_index, "Latitude"],
+                        Clusters.at[cluster_index, "Longitude"],
+                    )
+                    * Scaling_Factors[cluster_index]
+                )
+        min_cluster, min_distance = min(distance.items(), key=lambda x: x[1])
+        Blocks.at[block_index, "Cluster"] = min_cluster
+
+    Blocks["Cluster"] = Blocks["Cluster"].astype(int)
+
+    ################################################################################
+    # SECONDLY CALCULATE SCALING FACTOR FOR EACH CLUSTER ###########################
+    ################################################################################
+    Scaling_Factors = Calculate_Scaling_Factors(Blocks, Scaling_Factors, alpha, beta)
+
+    return Blocks, Clusters, Scaling_Factors
+
+
+# %%
+def plot_clusters(blocks):
+    plt.figure(figsize=(10, 6))
+
+    total_population_all_clusters = blocks["Population"].sum()
+    legend_labels = []
+
+    for cluster, color in DISTRICT_COLORS.items():
+        cluster_points = blocks[blocks["Cluster"] == cluster]
+        plt.scatter(
+            cluster_points["Longitude"],
+            cluster_points["Latitude"],
+            c=color,
+            label=f"Cluster {cluster}",
+        )
+
+        total_population_cluster = cluster_points["Population"].sum()
+        percentage_population = (
+            total_population_cluster / total_population_all_clusters
+        ) * 100
+
+        legend_labels.append(
+            f"Cluster {cluster}: {total_population_cluster} population ({percentage_population:.2f}%)"
+        )
+
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
+    plt.title("Clustered Points")
+    plt.legend(labels=legend_labels, bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.grid(True)
     plt.show()
-    plt.close()
 
-#%%
-data = extract_data(Blocks)
-result_clusters = weighted_kmeans(data, k=14, alpha=0.5, beta=0.1, max_runs=100, verbose = True)
-#%%
-plot_districts(result_clusters,Blocks)
+
+# %%
+def find_centers(
+    Blocks,
+    Clusters,
+    Scaling_Factors,
+    N_DISTRICTS=14,
+    max_iterations=1000,
+    alpha=0.5,
+    beta=0.1,
+):
+    runs = 0
+    while runs < max_iterations:
+        # Keep track of previous clusters (will be used for convergence check later)
+        old_clusters = Clusters.copy()
+
+        # assign points to cluster
+        Blocks, Clusters, Scaling_Factors = Cluster_Points(
+            Blocks, Clusters, Scaling_Factors, N_DISTRICTS
+        )
+
+        # Find new center
+        Clusters = reevaluate_centers(Blocks, Clusters)
+
+        # Increment runs to end loop
+        plot_clusters(Blocks)
+        print("Current Run:" + str(runs))
+        runs += 1
+    return Blocks, Clusters, Scaling_Factors
+
+
+# %%
+Small_Blocks = Blocks.copy()
+# %%
+Small_Blocks = Small_Blocks.head(10000)
+# %%
+Small_Blocks, Clusters, Scaling_Factors = Cluster_Points(
+    Small_Blocks, Clusters, Scaling_Factors, 2
+)
+# %%
+Small_Blocks, Clusters, Scaling_Factors = find_centers(
+    Small_Blocks, Clusters, Scaling_Factors, 14, 10, 0.1, 0.5
+)
+# %%
+Blocks, Clusters, Scaling_Factors = find_centers(Blocks, Clusters, Scaling_Factors)
 # %%
