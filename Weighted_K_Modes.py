@@ -4,16 +4,14 @@ import numpy as np
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
-import geopandas as gpd
 import pandas as pd
 import random
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 # %%
 data_path = Path("data")
 N_DISTRICTS = 14
-MIN_DISTRICT_POP = 400000
-MAX_DISTRICT_POP = 1000000
 DISTRICT_COLORS = {
     -1: "#000000",
     0: "#e6194B",
@@ -32,12 +30,11 @@ DISTRICT_COLORS = {
     13: "#fffac8",
 }
 # %%
-Data = gpd.read_file(data_path / "Blocks.geojson", index=False)
+Data = pd.read_csv(data_path / "Blocks.csv")
 # %%
 Blocks = Data[["GEOID", "Population", "Latitude", "Longitude"]]
 Blocks["GEOID"] = Blocks["GEOID"].astype(str)
 Blocks["County"] = Blocks["GEOID"].str[2:5]
-Blocks["Cluster"] = -1
 # %%
 Clusters = pd.DataFrame(columns=["Latitude", "Longitude"])
 Scaling_Factors = {key: 1 for key in range(N_DISTRICTS)}
@@ -114,7 +111,7 @@ def Calculate_Scaling_Factors(df, factors_dict, alpha, beta):
 
     # apply time-averaging on the scaling factor
     for key, value in factors_dict.items():
-        factors_dict[key] = (1 - beta) * old_factors[key] + (beta) * value
+        factors_dict[key] = (1 - beta) * old_factors[key] + (beta) * (value + 0.1)
 
     # The scaling factors should still sum to about one
     # print(sum(factors_dict.values()))
@@ -189,7 +186,89 @@ def Cluster_Points(
 
 
 # %%
-def plot_clusters(blocks):
+def calculate_distance(block, cluster, scaling_factor, distance_type="euclidean"):
+    if distance_type == "haversine":
+        return (
+            Distance_Haversine(
+                block["Latitude"],
+                block["Longitude"],
+                cluster["Latitude"],
+                cluster["Longitude"],
+            )
+            * scaling_factor
+        )
+    elif distance_type == "euclidean":
+        return (
+            Distance_Euclidean(
+                block["Latitude"],
+                block["Longitude"],
+                cluster["Latitude"],
+                cluster["Longitude"],
+            )
+            * scaling_factor
+        )
+
+
+def cluster_block(block, clusters, scaling_factors, distance_type="euclidean"):
+    distance_dict = {}
+    for cluster_index, cluster in clusters.iterrows():
+        scaling_factor = scaling_factors[cluster_index]
+        distance_dict[cluster_index] = calculate_distance(
+            block, cluster, scaling_factor, distance_type
+        )
+    min_cluster, min_distance = min(distance_dict.items(), key=lambda x: x[1])
+    return min_cluster
+
+
+def parallel_cluster_points(args):
+    block, clusters, scaling_factors, distance_type = args
+    cluster_index = cluster_block(block, clusters, scaling_factors, distance_type)
+    return cluster_index
+
+
+def Cluster_Points_Parallel(
+    Blocks,
+    Clusters,
+    Scaling_Factors,
+    N_DISTRICTS,
+    distance_type="euclidean",
+    alpha=0.5,
+    beta=0.1,
+):
+    if Clusters.empty:
+        Clusters = pd.concat([Clusters, select_seed_blocks(Blocks, N_DISTRICTS)])
+
+    with tqdm(total=len(Blocks), desc="Clustering Progress") as pbar:
+
+        def update_pbar(*_):
+            pbar.update()
+
+        with ThreadPoolExecutor() as executor:
+            args_list = [
+                (Blocks.iloc[i], Clusters, Scaling_Factors, distance_type)
+                for i in range(len(Blocks))
+            ]
+            futures = [
+                executor.submit(parallel_cluster_points, args) for args in args_list
+            ]
+
+            # Add a callback to update the progress bar for each completed task
+            for future in futures:
+                future.add_done_callback(update_pbar)
+
+            # Wait for all tasks to complete
+            results = [future.result() for future in futures]
+
+    Blocks["Cluster"] = results
+    Blocks["Cluster"] = Blocks["Cluster"].astype(int)
+
+    Scaling_Factors = Calculate_Scaling_Factors(Blocks, Scaling_Factors, alpha, beta)
+
+    return Blocks, Clusters, Scaling_Factors
+
+
+# %%
+def plot_clusters(blocks, clusters):
     plt.figure(figsize=(10, 6))
 
     total_population_all_clusters = blocks["Population"].sum()
@@ -213,9 +292,21 @@ def plot_clusters(blocks):
             f"Cluster {cluster}: {total_population_cluster} population ({percentage_population:.2f}%)"
         )
 
+    # Plot markers at the center of each cluster
+    for cluster_index, cluster in clusters.iterrows():
+        plt.scatter(
+            cluster["Longitude"],
+            cluster["Latitude"],
+            marker="x",
+            s=10,
+            c="black",
+            label=f"Center of Cluster {cluster_index}",
+            alpha=0.8,
+        )
+
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
-    plt.title("Clustered Points")
+    plt.title("Clustered Points with Cluster Centers")
     plt.legend(labels=legend_labels, bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.grid(True)
     plt.show()
@@ -245,7 +336,67 @@ def find_centers(
         Clusters = reevaluate_centers(Blocks, Clusters)
 
         # Increment runs to end loop
-        plot_clusters(Blocks)
+        plot_clusters(Blocks, Clusters)
+        print("Current Run:" + str(runs))
+        runs += 1
+    return Blocks, Clusters, Scaling_Factors
+
+
+# %%
+def find_centers_test(
+    Blocks,
+    Clusters,
+    Scaling_Factors,
+    N_DISTRICTS=14,
+    max_iterations=1000,
+    alpha=0.5,
+    beta=0.1,
+):
+    runs = 0
+    while runs < max_iterations:
+        # Keep track of previous clusters (will be used for convergence check later)
+        old_clusters = Clusters.copy()
+
+        # assign points to cluster
+        Blocks, Clusters, Scaling_Factors = Cluster_Points(
+            Blocks, Clusters, Scaling_Factors, N_DISTRICTS
+        )
+
+        # Find new center
+        # Clusters = reevaluate_centers(Blocks, Clusters)
+
+        # Increment runs to end loop
+        plot_clusters(Blocks, Clusters)
+        print("Current Run:" + str(runs))
+        runs += 1
+    return Blocks, Clusters, Scaling_Factors
+
+
+# %%
+def Find_Centers_Parallel(
+    Blocks,
+    Clusters,
+    Scaling_Factors,
+    N_DISTRICTS=14,
+    max_iterations=1000,
+    alpha=0.5,
+    beta=0.1,
+):
+    runs = 0
+    while runs < max_iterations:
+        # Keep track of previous clusters (will be used for convergence check later)
+        old_clusters = Clusters.copy()
+
+        # assign points to cluster
+        Blocks, Clusters, Scaling_Factors = Cluster_Points_Parallel(
+            Blocks, Clusters, Scaling_Factors, N_DISTRICTS
+        )
+
+        # Find new center
+        Clusters = reevaluate_centers(Blocks, Clusters)
+
+        # Increment runs to end loop
+        plot_clusters(Blocks, Clusters)
         print("Current Run:" + str(runs))
         runs += 1
     return Blocks, Clusters, Scaling_Factors
@@ -261,8 +412,15 @@ Small_Blocks, Clusters, Scaling_Factors = Cluster_Points(
 )
 # %%
 Small_Blocks, Clusters, Scaling_Factors = find_centers(
-    Small_Blocks, Clusters, Scaling_Factors, 14, 10, 0.1, 0.5
+    Small_Blocks, Clusters, Scaling_Factors, 14, 50, 0.1, 0.5
 )
 # %%
-Blocks, Clusters, Scaling_Factors = find_centers(Blocks, Clusters, Scaling_Factors)
+Blocks, Clusters, Scaling_Factors = find_centers(
+    Blocks, Clusters, Scaling_Factors, 14, 50, 3, 1
+)
+# %%
+Blocks, Clusters, Scaling_Factors = find_centers_test(
+    Blocks, Clusters, Scaling_Factors, 14, 50, 0.5, 1
+)
+
 # %%
